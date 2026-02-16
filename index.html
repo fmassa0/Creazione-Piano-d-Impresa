@@ -187,7 +187,17 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const opexCosts = YEARS.map((_, i) => opexItems.reduce((s, o) => {
     if (o.isPercentOfRevenue) return s + totalRevenue[i] * o.percentOfRevenue;
     if (o.values[i] > 0) return s + o.values[i];
-    if (o.values[0] > 0) return s + o.values[0] * Math.pow(1 + o.growthRate, i);
+    // Find last manual value before this year
+    let base = 0,
+      baseYear = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      if (o.values[j] > 0) {
+        base = o.values[j];
+        baseYear = j;
+        break;
+      }
+    }
+    if (base > 0) return s + base * Math.pow(1 + o.growthRate, i - baseYear);
     return s;
   }, 0));
   const depreciation = YEARS.map((_, i) => investments.reduce((s, inv) => {
@@ -224,26 +234,40 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     for (let j = 0; j <= i; j++) eq += (assumptions.equityInjection[j] || 0) + netIncome[j] - dividends[j];
     return eq;
   });
+
+  // Deferred grant income (risconti passivi): cash received Y1 minus cumulative income recognized
+  const grantCashIn = YEARS.map((_, i) => i === 0 ? assumptions.grantAmount : 0);
+  const cumGrantIncome = YEARS.map((_, i) => grantIncome.slice(0, i + 1).reduce((s, g) => s + g, 0));
+  const deferredGrant = YEARS.map((_, i) => Math.max(0, assumptions.grantAmount - cumGrantIncome[i]));
   const currentLiabilities = YEARS.map((_, i) => ap[i] + totalTax[i]);
   const totalAssetsNoCash = YEARS.map((_, i) => ar[i] + inventory[i] + netFA[i]);
-  const totalLiabEq = YEARS.map((_, i) => currentLiabilities[i] + netDebt[i] + equity[i]);
+  const totalLiabEq = YEARS.map((_, i) => currentLiabilities[i] + deferredGrant[i] + netDebt[i] + equity[i]);
   const cash = YEARS.map((_, i) => totalLiabEq[i] - totalAssetsNoCash[i]);
   const totalAssets = YEARS.map((_, i) => totalAssetsNoCash[i] + Math.max(0, cash[i]));
   const fundingGap = YEARS.map((_, i) => cash[i] < 0 ? Math.abs(cash[i]) : 0);
+
+  // CF Operating: NI + Dep + WC change (incl. tax payable) + grant cash adjustment
   const cfOperating = YEARS.map((_, i) => {
-    const wc = i === 0 ? -(ar[0] + inventory[0] - ap[0]) : -(ar[i] - ar[i - 1] + (inventory[i] - inventory[i - 1]) - (ap[i] - ap[i - 1]));
-    return netIncome[i] + depreciation[i] + wc;
+    const wcTrade = i === 0 ? -(ar[0] + inventory[0] - ap[0]) : -(ar[i] - ar[i - 1] + (inventory[i] - inventory[i - 1]) - (ap[i] - ap[i - 1]));
+    const wcTax = i === 0 ? totalTax[0] : totalTax[i] - totalTax[i - 1]; // tax accrued but not paid = source of cash
+    const grantAdj = grantCashIn[i] - grantIncome[i]; // non-cash adjustment: cash received minus income recognized
+    return netIncome[i] + depreciation[i] + wcTrade + wcTax + grantAdj;
   });
   const cfInvesting = YEARS.map((_, i) => -totalInvestments[i]);
-  const cfFinancing = YEARS.map((_, i) => (assumptions.debtAmount[i] || 0) - (assumptions.debtRepayment[i] || 0) + (assumptions.equityInjection[i] || 0) - dividends[i] + (i === 0 ? assumptions.grantAmount : 0));
+  // CF Financing: NO grant here (grant cash is captured via operating adjustment)
+  const cfFinancing = YEARS.map((_, i) => (assumptions.debtAmount[i] || 0) - (assumptions.debtRepayment[i] || 0) + (assumptions.equityInjection[i] || 0) - dividends[i]);
   const netCF = YEARS.map((_, i) => cfOperating[i] + cfInvesting[i] + cfFinancing[i]);
   const cumCash = YEARS.map((_, i) => netCF.slice(0, i + 1).reduce((s, c) => s + c, 0));
   const grossMarginPct = YEARS.map((_, i) => totalRevenue[i] ? grossProfit[i] / totalRevenue[i] : 0);
   const ebitdaMargin = YEARS.map((_, i) => totalRevenue[i] ? ebitda[i] / totalRevenue[i] : 0);
   const netMargin = YEARS.map((_, i) => totalRevenue[i] ? netIncome[i] / totalRevenue[i] : 0);
-  const roe = YEARS.map((_, i) => equity[i] ? netIncome[i] / equity[i] : 0);
+  const roe = YEARS.map((_, i) => {
+    if (!equity[i]) return null;
+    if (equity[i] < 0 && netIncome[i] < 0) return null;
+    return netIncome[i] / equity[i];
+  });
   const roa = YEARS.map((_, i) => totalAssets[i] ? netIncome[i] / totalAssets[i] : 0);
-  const currentRatio = YEARS.map((_, i) => currentLiabilities[i] ? (ar[i] + inventory[i] + Math.max(0, cash[i])) / currentLiabilities[i] : 0);
+  const currentRatio = YEARS.map((_, i) => currentLiabilities[i] > 0 ? (ar[i] + inventory[i] + Math.max(0, cash[i])) / currentLiabilities[i] : null);
   const debtRatio = YEARS.map((_, i) => totalAssets[i] ? netDebt[i] / totalAssets[i] : 0);
   const headcount = YEARS.map((_, i) => hrs.reduce((s, h) => s + (h.count[i] || 0), 0));
   const revPerEmp = YEARS.map((_, i) => headcount[i] ? totalRevenue[i] / headcount[i] : 0);
@@ -276,6 +300,8 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     totalAssets,
     netFA,
     currentLiabilities,
+    deferredGrant,
+    grantCashIn,
     cfOperating,
     cfInvesting,
     cfFinancing,
@@ -297,6 +323,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     revenueCAGR
   };
 }
+const sanitizeName = s => (s || "azienda").replace(/[^a-zA-Z0-9À-ú_\- ]/g, "").replace(/\s+/g, "_").substring(0, 50);
 
 /* ═══════════════════════════════════════════════════════════
    EXPORT ENGINES
@@ -354,7 +381,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
         right: pg.mx
       },
       head: [cols],
-      body: rows.map(r => [r.label, ...r.values.slice(0, n).map(v => r.pct ? fmtPct(v) : fmt(v))]),
+      body: rows.map(r => [r.label, ...r.values.slice(0, n).map(v => r.pct ? fmtPct(v) : fmt(v, r.dec || 0))]),
       styles: {
         font: "helvetica",
         fontSize: 8,
@@ -523,6 +550,9 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     label: "Debiti tributari",
     values: f.totalTax
   }, {
+    label: "Risconti passivi (contributi)",
+    values: f.deferredGrant
+  }, {
     label: "Debito finanziario",
     values: f.netDebt
   }, {
@@ -547,6 +577,12 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
   doc.addPage();
   y = pg.my;
   addTitle("RENDICONTO FINANZIARIO PREVISIONALE");
+  const wcChange = YEARS.map((_, i) => {
+    const wcTrade = i === 0 ? -(f.ar[0] + f.inventory[0] - f.ap[0]) : -(f.ar[i] - f.ar[i - 1] + (f.inventory[i] - f.inventory[i - 1]) - (f.ap[i] - f.ap[i - 1]));
+    const wcTax = i === 0 ? f.totalTax[0] : f.totalTax[i] - f.totalTax[i - 1];
+    return wcTrade + wcTax;
+  });
+  const grantAdj = YEARS.map((_, i) => f.grantCashIn[i] - f.grantIncome[i]);
   addTable(null, [{
     label: "Utile netto",
     values: f.netIncome
@@ -555,7 +591,10 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     values: f.depreciation
   }, {
     label: "  ± Δ Capitale circolante",
-    values: YEARS.map((_, i) => f.cfOperating[i] - f.netIncome[i] - f.depreciation[i])
+    values: wcChange
+  }, {
+    label: "  ± Rettifica contributi (cassa vs comp.)",
+    values: grantAdj
   }, {
     label: "CF OPERATIVO",
     values: f.cfOperating,
@@ -608,7 +647,8 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
   }]);
   addTable("Solidità ed efficienza", [{
     label: "Current ratio",
-    values: f.currentRatio
+    values: f.currentRatio,
+    dec: 2
   }, {
     label: "Rapporto indebitamento",
     values: f.debtRatio,
@@ -620,7 +660,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     label: "Ricavo per dipendente",
     values: f.revPerEmp
   }]);
-  doc.save(`piano-economico-${company.name || "azienda"}.pdf`);
+  doc.save(`piano-economico-${sanitizeName(company.name)}.pdf`);
 }
 function exportExcel(company, financials, revenues, hrs, opexItems, investments, assumptions) {
   const n = company.yearsCount;
@@ -736,6 +776,9 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       label: "Debiti tributari",
       values: f.totalTax
     }, {
+      label: "Risconti passivi (contributi)",
+      values: f.deferredGrant
+    }, {
       label: "Debito finanziario",
       values: f.netDebt
     }, {
@@ -751,6 +794,12 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
   }]);
 
   // Cash Flow
+  const xlWcChange = YEARS.map((_, i) => {
+    const wcTrade = i === 0 ? -(f.ar[0] + f.inventory[0] - f.ap[0]) : -(f.ar[i] - f.ar[i - 1] + (f.inventory[i] - f.inventory[i - 1]) - (f.ap[i] - f.ap[i - 1]));
+    const wcTax = i === 0 ? f.totalTax[0] : f.totalTax[i] - f.totalTax[i - 1];
+    return wcTrade + wcTax;
+  });
+  const xlGrantAdj = YEARS.map((_, i) => f.grantCashIn[i] - f.grantIncome[i]);
   makeSheet("Cash Flow", [{
     title: "RENDICONTO FINANZIARIO",
     rows: [{
@@ -761,7 +810,10 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       values: f.depreciation
     }, {
       label: "(±) Δ Capitale circolante",
-      values: YEARS.map((_, i) => f.cfOperating[i] - f.netIncome[i] - f.depreciation[i])
+      values: xlWcChange
+    }, {
+      label: "(±) Rettifica contributi (cassa vs comp.)",
+      values: xlGrantAdj
     }, {
       label: "CF OPERATIVO",
       values: f.cfOperating
@@ -845,7 +897,7 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
     wch: 14
   }];
   XLSX.utils.book_append_sheet(wb, wsInput, "Dati Input");
-  XLSX.writeFile(wb, `piano-economico-${company.name || "azienda"}.xlsx`);
+  XLSX.writeFile(wb, `piano-economico-${sanitizeName(company.name)}.xlsx`);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1012,7 +1064,8 @@ function Card({
       display: "flex",
       gap: 8,
       alignItems: "center"
-    }
+    },
+    onClick: e => e.stopPropagation()
   }, actions, collapsible && /*#__PURE__*/React.createElement("span", {
     style: {
       color: accent ? "#94a3b8" : "#9ca3af",
@@ -1103,7 +1156,8 @@ function YearRow({
   n,
   bold,
   highlight,
-  pct
+  pct,
+  dec
 }) {
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1133,7 +1187,7 @@ function YearRow({
       textAlign: "right",
       paddingRight: 8
     }
-  }, pct ? fmtPct(v) : fmt(v))));
+  }, pct ? fmtPct(v) : fmt(v, dec || 0))));
 }
 function Badge({
   children,
@@ -1480,7 +1534,7 @@ function StepHR({
     const u = [...hrs];
     u[i] = {
       ...u[i],
-      count: u[i].count.map((x, j) => j === yi ? v : x)
+      count: u[i].count.map((x, j) => j === yi ? Math.max(0, Math.round(v)) : x)
     };
     set(u);
   };
@@ -2143,9 +2197,13 @@ function StepResults({
     label: "Immobilizzazioni nette",
     values: f.netFA,
     n: n
+  }), hasFundingGap && /*#__PURE__*/React.createElement(YearRow, {
+    label: "  Fabbisogno (scoperto)",
+    values: f.fundingGap,
+    n: n
   }), /*#__PURE__*/React.createElement(Div, null), /*#__PURE__*/React.createElement(YearRow, {
     label: "TOTALE ATTIVO",
-    values: f.totalAssets,
+    values: f.totalLiabEq.map(v => Math.abs(v)),
     n: n,
     bold: true,
     highlight: true
@@ -2169,6 +2227,10 @@ function StepResults({
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "Debiti tributari",
     values: f.totalTax,
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "Risconti passivi (contributi)",
+    values: f.deferredGrant,
     n: n
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "Debito finanziario",
@@ -2213,7 +2275,15 @@ function StepResults({
     n: n
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "  \xB1 \u0394 Capitale circolante",
-    values: YEARS.map((_, i) => f.cfOperating[i] - f.netIncome[i] - f.depreciation[i]),
+    values: YEARS.map((_, i) => {
+      const wcTrade = i === 0 ? -(f.ar[0] + f.inventory[0] - f.ap[0]) : -(f.ar[i] - f.ar[i - 1] + (f.inventory[i] - f.inventory[i - 1]) - (f.ap[i] - f.ap[i - 1]));
+      const wcTax = i === 0 ? f.totalTax[0] : f.totalTax[i] - f.totalTax[i - 1];
+      return wcTrade + wcTax;
+    }),
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "  \xB1 Rettifica contributi",
+    values: YEARS.map((_, i) => f.grantCashIn[i] - f.grantIncome[i]),
     n: n
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "CF OPERATIVO",
@@ -2308,7 +2378,8 @@ function StepResults({
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "Current ratio",
     values: f.currentRatio,
-    n: n
+    n: n,
+    dec: 2
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "Rapporto indebitamento",
     values: f.debtRatio,
@@ -2381,7 +2452,7 @@ function App() {
     });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `piano-economico-${company.name || "azienda"}.json`;
+    a.download = `piano-economico-${sanitizeName(company.name)}.json`;
     a.click();
   };
   const importJSON = e => {
@@ -2399,10 +2470,22 @@ function App() {
         if (data.hrs) setHrs(data.hrs);
         if (data.opexItems) setOpexItems(data.opexItems);
         if (data.investments) setInvestments(data.investments);
-        if (data.assumptions) setAssumptions({
-          ...DEFAULTS.assumptions,
-          ...data.assumptions
-        });
+        if (data.assumptions) {
+          const merged = {
+            ...DEFAULTS.assumptions,
+            ...data.assumptions
+          };
+          // Deep merge nested objects
+          if (data.assumptions.scenarioMultiplier) merged.scenarioMultiplier = {
+            ...DEFAULTS.assumptions.scenarioMultiplier,
+            ...data.assumptions.scenarioMultiplier
+          };
+          // Ensure arrays have correct length
+          ["debtAmount", "debtRepayment", "equityInjection"].forEach(k => {
+            if (!Array.isArray(merged[k]) || merged[k].length < 5) merged[k] = [...(merged[k] || []), ...[0, 0, 0, 0, 0]].slice(0, 5);
+          });
+          setAssumptions(merged);
+        }
         alert("✅ Piano importato correttamente!");
       } catch (err) {
         alert("❌ Errore: file non valido. Usa un file .json generato da questa app.");

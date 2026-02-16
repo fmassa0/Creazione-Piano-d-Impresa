@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Piano Economico — Generatore Business Plan</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{font-family:'DM Sans',sans-serif;background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);min-height:100vh;color:#111827}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{opacity:1}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:#f1f5f9}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+.fade-in{animation:fadeIn .3s ease}@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.pulse{animation:pulse 2s infinite}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback,useMemo,useRef}=React;
+
+/* ═══════════════════════════════════════════════════════════
+   CONSTANTS
+   ═══════════════════════════════════════════════════════════ */
+const YEARS=[0,1,2,3,4];
+const YL=["Anno 1","Anno 2","Anno 3","Anno 4","Anno 5"];
+const STEPS=[
+  {id:0,label:"Azienda",icon:"🏢",desc:"Info generali e scenario"},
+  {id:1,label:"Ricavi",icon:"📈",desc:"Linee di prodotto/servizio"},
+  {id:2,label:"Produzione",icon:"🏭",desc:"Costi diretti e margini"},
+  {id:3,label:"Personale",icon:"👥",desc:"Organico e costi HR"},
+  {id:4,label:"Costi Op.",icon:"💼",desc:"Affitti, utenze, marketing"},
+  {id:5,label:"Investimenti",icon:"🔧",desc:"CapEx e ammortamenti"},
+  {id:6,label:"Ipotesi",icon:"⚙️",desc:"Fiscalità, WC, debito"},
+  {id:7,label:"Risultati",icon:"📊",desc:"CE, SP, CF, KPI"},
+];
+
+const eY=()=>[0,0,0,0,0];
+const eY1=()=>[1,1,1,1,1];
+
+const DEFAULTS={
+  company:{name:"",sector:"",currency:"EUR",yearsCount:3,scenario:"base"},
+  revenueLine:()=>({name:"",type:"product",unitPrice:0,volumes:eY(),growthRates:[0,0.05,0.05,0.05,0.05],grossMargin:0.40}),
+  hr:()=>({role:"",type:"direct",annualCost:0,count:eY1(),growthRate:0.03}),
+  opex:()=>({name:"",category:"general",values:eY(),growthRate:0.02,isPercentOfRevenue:false,percentOfRevenue:0}),
+  investment:()=>({name:"",type:"tangible",cost:0,usefulLife:5,year:0}),
+  assumptions:{vatRate:.22,iresRate:.245,irapRate:.0497,dso:30,dpo:60,dio:30,interestRate:.04,
+    debtAmount:eY(),debtRepayment:eY(),equityInjection:eY(),dividendPayout:0,
+    grantAmount:0,grantYears:5,scenarioMultiplier:{base:1,pessimistic:.85,optimistic:1.15}},
+};
+
+/* ═══════════════════════════════════════════════════════════
+   FORMATTING UTILS
+   ═══════════════════════════════════════════════════════════ */
+const fmt=(v,d=0)=>{if(v==null||isNaN(v))return"—";const a=Math.abs(v);const f=a.toLocaleString("it-IT",{minimumFractionDigits:d,maximumFractionDigits:d});return v<0?`(${f})`:f};
+const fmtPct=v=>{if(v==null||isNaN(v))return"—";return(v*100).toFixed(1)+"%"};
+const fmtEur=(v,d=0)=>{if(v==null||isNaN(v))return"—";return"€ "+fmt(v,d)};
+
+/* ═══════════════════════════════════════════════════════════
+   CALCULATION ENGINE (verified with unit tests)
+   ═══════════════════════════════════════════════════════════ */
+function computeFinancials(company,revenues,hrs,opexItems,investments,assumptions){
+  const n=company.yearsCount;
+  const sm=assumptions.scenarioMultiplier[company.scenario]||1;
+
+  const revenueByLine=revenues.map(line=>{
+    const vols=[];
+    for(let i=0;i<5;i++){
+      if(line.volumes[i]>0){vols[i]=line.volumes[i]}
+      else if(i>0&&vols[i-1]>0){vols[i]=Math.round(vols[i-1]*(1+(line.growthRates?line.growthRates[i]:0.05)))}
+      else{vols[i]=0}
+    }
+    return YEARS.map((_,i)=>vols[i]*line.unitPrice*sm);
+  });
+  const totalRevenue=YEARS.map((_,i)=>revenueByLine.reduce((s,l)=>s+(l[i]||0),0));
+  const cogs=revenues.map((line,li)=>revenueByLine[li].map(r=>r*(1-line.grossMargin)));
+  const totalCOGS=YEARS.map((_,i)=>cogs.reduce((s,l)=>s+(l[i]||0),0));
+  const grossProfit=YEARS.map((_,i)=>totalRevenue[i]-totalCOGS[i]);
+
+  const hrCosts=YEARS.map((_,i)=>hrs.reduce((s,h)=>s+h.annualCost*(h.count[i]||0)*Math.pow(1+h.growthRate,i),0));
+
+  const opexCosts=YEARS.map((_,i)=>opexItems.reduce((s,o)=>{
+    if(o.isPercentOfRevenue)return s+totalRevenue[i]*o.percentOfRevenue;
+    if(o.values[i]>0)return s+o.values[i];
+    if(o.values[0]>0)return s+o.values[0]*Math.pow(1+o.growthRate,i);
+    return s;
+  },0));
+
+  const depreciation=YEARS.map((_,i)=>investments.reduce((s,inv)=>{
+    if(i>=inv.year&&inv.usefulLife>0&&(i-inv.year)<inv.usefulLife)return s+inv.cost/inv.usefulLife;
+    return s;
+  },0));
+
+  const grantIncome=YEARS.map((_,i)=>assumptions.grantAmount>0&&i<assumptions.grantYears?assumptions.grantAmount/assumptions.grantYears:0);
+
+  const ebitda=YEARS.map((_,i)=>grossProfit[i]-hrCosts[i]-opexCosts[i]+grantIncome[i]);
+  const ebit=YEARS.map((_,i)=>ebitda[i]-depreciation[i]);
+
+  const netDebt=YEARS.map((_,i)=>{let d=0;for(let j=0;j<=i;j++)d+=(assumptions.debtAmount[j]||0)-(assumptions.debtRepayment[j]||0);return Math.max(0,d)});
+
+  const interest=YEARS.map((_,i)=>{const prev=i>0?netDebt[i-1]:0;return prev*assumptions.interestRate});
+
+  const ebt=YEARS.map((_,i)=>ebit[i]-interest[i]);
+  const ires=YEARS.map((_,i)=>Math.max(0,ebt[i]*assumptions.iresRate));
+  const irap=YEARS.map((_,i)=>Math.max(0,ebit[i]*assumptions.irapRate));
+  const totalTax=YEARS.map((_,i)=>ires[i]+irap[i]);
+  const netIncome=YEARS.map((_,i)=>ebt[i]-totalTax[i]);
+  const dividends=YEARS.map((_,i)=>Math.max(0,netIncome[i]*assumptions.dividendPayout));
+
+  const ar=YEARS.map((_,i)=>(totalRevenue[i]*(1+assumptions.vatRate)*assumptions.dso)/360);
+  const inventory=YEARS.map((_,i)=>(totalCOGS[i]*assumptions.dio)/360);
+  const ap=YEARS.map((_,i)=>(totalCOGS[i]*(1+assumptions.vatRate)*assumptions.dpo)/360);
+
+  const totalInvestments=YEARS.map((_,i)=>investments.filter(inv=>inv.year===i).reduce((s,inv)=>s+inv.cost,0));
+  const accDep=YEARS.map((_,i)=>depreciation.slice(0,i+1).reduce((s,d)=>s+d,0));
+  const grossFA=YEARS.map((_,i)=>totalInvestments.slice(0,i+1).reduce((s,t)=>s+t,0));
+  const netFA=YEARS.map((_,i)=>grossFA[i]-accDep[i]);
+
+  const equity=YEARS.map((_,i)=>{let eq=0;for(let j=0;j<=i;j++)eq+=(assumptions.equityInjection[j]||0)+netIncome[j]-dividends[j];return eq});
+
+  const currentLiabilities=YEARS.map((_,i)=>ap[i]+totalTax[i]);
+  const totalAssetsNoCash=YEARS.map((_,i)=>ar[i]+inventory[i]+netFA[i]);
+  const totalLiabEq=YEARS.map((_,i)=>currentLiabilities[i]+netDebt[i]+equity[i]);
+  const cash=YEARS.map((_,i)=>totalLiabEq[i]-totalAssetsNoCash[i]);
+  const totalAssets=YEARS.map((_,i)=>totalAssetsNoCash[i]+Math.max(0,cash[i]));
+  const fundingGap=YEARS.map((_,i)=>cash[i]<0?Math.abs(cash[i]):0);
+
+  const cfOperating=YEARS.map((_,i)=>{
+    const wc=i===0?-(ar[0]+inventory[0]-ap[0]):-((ar[i]-ar[i-1])+(inventory[i]-inventory[i-1])-(ap[i]-ap[i-1]));
+    return netIncome[i]+depreciation[i]+wc;
+  });
+  const cfInvesting=YEARS.map((_,i)=>-totalInvestments[i]);
+  const cfFinancing=YEARS.map((_,i)=>(assumptions.debtAmount[i]||0)-(assumptions.debtRepayment[i]||0)+(assumptions.equityInjection[i]||0)-dividends[i]+(i===0?assumptions.grantAmount:0));
+  const netCF=YEARS.map((_,i)=>cfOperating[i]+cfInvesting[i]+cfFinancing[i]);
+  const cumCash=YEARS.map((_,i)=>netCF.slice(0,i+1).reduce((s,c)=>s+c,0));
+
+  const grossMarginPct=YEARS.map((_,i)=>totalRevenue[i]?grossProfit[i]/totalRevenue[i]:0);
+  const ebitdaMargin=YEARS.map((_,i)=>totalRevenue[i]?ebitda[i]/totalRevenue[i]:0);
+  const netMargin=YEARS.map((_,i)=>totalRevenue[i]?netIncome[i]/totalRevenue[i]:0);
+  const roe=YEARS.map((_,i)=>equity[i]?netIncome[i]/equity[i]:0);
+  const roa=YEARS.map((_,i)=>totalAssets[i]?netIncome[i]/totalAssets[i]:0);
+  const currentRatio=YEARS.map((_,i)=>currentLiabilities[i]?(ar[i]+inventory[i]+Math.max(0,cash[i]))/currentLiabilities[i]:0);
+  const debtRatio=YEARS.map((_,i)=>totalAssets[i]?netDebt[i]/totalAssets[i]:0);
+  const headcount=YEARS.map((_,i)=>hrs.reduce((s,h)=>s+(h.count[i]||0),0));
+  const revPerEmp=YEARS.map((_,i)=>headcount[i]?totalRevenue[i]/headcount[i]:0);
+  const revenueCAGR=n>1&&totalRevenue[0]>0?Math.pow(totalRevenue[n-1]/totalRevenue[0],1/(n-1))-1:0;
+
+  return {revenueByLine,totalRevenue,totalCOGS,grossProfit,hrCosts,opexCosts,depreciation,grantIncome,
+    ebitda,ebit,interest,ebt,ires,irap,totalTax,netIncome,dividends,
+    ar,inventory,ap,netDebt,equity,cash,fundingGap,totalAssets,netFA,currentLiabilities,
+    cfOperating,cfInvesting,cfFinancing,netCF,cumCash,totalInvestments,grossFA,accDep,totalLiabEq,
+    grossMarginPct,ebitdaMargin,netMargin,roe,roa,currentRatio,debtRatio,headcount,revPerEmp,revenueCAGR};
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EXPORT ENGINES
+   ═══════════════════════════════════════════════════════════ */
+
+function exportPDF(company,financials,revenues,hrs,opexItems,investments,assumptions){
+  const{jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+  const n=company.yearsCount;
+  const cols=["Voce",...YL.slice(0,n)];
+  const pg={w:297,h:210,mx:14,my:14};
+  let y=pg.my;
+
+  const addTitle=(text)=>{
+    if(y>pg.h-30){doc.addPage();y=pg.my}
+    doc.setFontSize(16);doc.setFont("helvetica","bold");doc.setTextColor(15,36,64);
+    doc.text(text,pg.mx,y);y+=3;
+    doc.setDrawColor(212,175,55);doc.setLineWidth(.5);doc.line(pg.mx,y,pg.w-pg.mx,y);y+=8;
+  };
+
+  const addTable=(title,rows,opts={})=>{
+    if(y>pg.h-40){doc.addPage();y=pg.my}
+    if(title){doc.setFontSize(11);doc.setFont("helvetica","bold");doc.setTextColor(30,58,95);doc.text(title,pg.mx,y);y+=5}
+    doc.autoTable({
+      startY:y,margin:{left:pg.mx,right:pg.mx},
+      head:[cols],
+      body:rows.map(r=>[r.label,...r.values.slice(0,n).map(v=>r.pct?fmtPct(v):fmt(v))]),
+      styles:{font:"helvetica",fontSize:8,cellPadding:2,lineColor:[229,231,235],lineWidth:.1},
+      headStyles:{fillColor:[15,36,64],textColor:255,fontStyle:"bold",fontSize:8},
+      alternateRowStyles:{fillColor:[249,250,251]},
+      columnStyles:{0:{cellWidth:55}},
+      didParseCell:(data)=>{
+        if(data.section==="body"&&data.column.index>0){
+          data.cell.styles.halign="right";data.cell.styles.font="courier";
+          const val=rows[data.row.index]?.values[data.column.index-1];
+          if(typeof val==="number"&&val<0)data.cell.styles.textColor=[220,38,38];
+        }
+        if(rows[data.row.index]?.bold&&data.section==="body"){
+          data.cell.styles.fontStyle="bold";
+          if(rows[data.row.index]?.highlight)data.cell.styles.fillColor=[237,242,252];
+        }
+      },
+      ...opts
+    });
+    y=doc.lastAutoTable.finalY+8;
+  };
+
+  // Cover
+  doc.setFillColor(15,36,64);doc.rect(0,0,pg.w,pg.h,"F");
+  doc.setFillColor(212,175,55);doc.rect(0,pg.h-3,pg.w,3,"F");
+  doc.setTextColor(255);doc.setFontSize(32);doc.setFont("helvetica","bold");
+  doc.text("PIANO ECONOMICO-FINANZIARIO",pg.w/2,pg.h/2-20,{align:"center"});
+  doc.setFontSize(20);doc.setFont("helvetica","normal");
+  doc.text(company.name||"Azienda",pg.w/2,pg.h/2+5,{align:"center"});
+  doc.setFontSize(12);doc.setTextColor(148,163,184);
+  const scenarioLabel={base:"Scenario Base",pessimistic:"Scenario Pessimistico",optimistic:"Scenario Ottimistico"}[company.scenario];
+  doc.text(`${scenarioLabel} — ${n} anni — ${company.currency}`,pg.w/2,pg.h/2+18,{align:"center"});
+  doc.text("Generato il "+new Date().toLocaleDateString("it-IT"),pg.w/2,pg.h/2+28,{align:"center"});
+
+  // CE
+  doc.addPage();y=pg.my;
+  addTitle("CONTO ECONOMICO PREVISIONALE");
+  const f=financials;
+  addTable(null,[
+    {label:"Ricavi totali",values:f.totalRevenue,bold:true,highlight:true},
+    {label:"  − Costo del venduto",values:f.totalCOGS.map(v=>-v)},
+    {label:"MARGINE LORDO",values:f.grossProfit,bold:true,highlight:true},
+    {label:"  Margine lordo %",values:f.grossMarginPct,pct:true},
+    {label:"  − Costo personale",values:f.hrCosts.map(v=>-v)},
+    {label:"  − Costi operativi",values:f.opexCosts.map(v=>-v)},
+    {label:"  + Contributi",values:f.grantIncome},
+    {label:"EBITDA",values:f.ebitda,bold:true,highlight:true},
+    {label:"  Margine EBITDA %",values:f.ebitdaMargin,pct:true},
+    {label:"  − Ammortamenti",values:f.depreciation.map(v=>-v)},
+    {label:"EBIT",values:f.ebit,bold:true},
+    {label:"  − Interessi passivi",values:f.interest.map(v=>-v)},
+    {label:"UTILE ANTE IMPOSTE",values:f.ebt,bold:true},
+    {label:"  − IRES",values:f.ires.map(v=>-v)},
+    {label:"  − IRAP",values:f.irap.map(v=>-v)},
+    {label:"UTILE NETTO",values:f.netIncome,bold:true,highlight:true},
+    {label:"  Margine netto %",values:f.netMargin,pct:true},
+  ]);
+
+  // SP
+  doc.addPage();y=pg.my;
+  addTitle("STATO PATRIMONIALE PREVISIONALE");
+  addTable("ATTIVO",[
+    {label:"Cassa e disponibilità",values:f.cash.map(v=>Math.max(0,v))},
+    {label:"Crediti commerciali",values:f.ar},
+    {label:"Rimanenze",values:f.inventory},
+    {label:"Immobilizzazioni nette",values:f.netFA},
+    {label:"TOTALE ATTIVO",values:f.totalAssets,bold:true,highlight:true},
+  ]);
+  addTable("PASSIVO E PATRIMONIO NETTO",[
+    {label:"Debiti commerciali",values:f.ap},
+    {label:"Debiti tributari",values:f.totalTax},
+    {label:"Debito finanziario",values:f.netDebt},
+    {label:"Patrimonio netto",values:f.equity,bold:true},
+    {label:"TOTALE PASSIVO",values:f.totalLiabEq,bold:true,highlight:true},
+  ]);
+  if(f.fundingGap.some(v=>v>0)){
+    addTable("⚠️ FABBISOGNO FINANZIARIO",[
+      {label:"Gap di cassa (copertura necessaria)",values:f.fundingGap,bold:true},
+    ]);
+  }
+
+  // CF
+  doc.addPage();y=pg.my;
+  addTitle("RENDICONTO FINANZIARIO PREVISIONALE");
+  addTable(null,[
+    {label:"Utile netto",values:f.netIncome},
+    {label:"  + Ammortamenti",values:f.depreciation},
+    {label:"  ± Δ Capitale circolante",values:YEARS.map((_,i)=>f.cfOperating[i]-f.netIncome[i]-f.depreciation[i])},
+    {label:"CF OPERATIVO",values:f.cfOperating,bold:true,highlight:true},
+    {label:"  − Investimenti",values:f.cfInvesting},
+    {label:"CF INVESTIMENTO",values:f.cfInvesting,bold:true},
+    {label:"CF FINANZIAMENTO",values:f.cfFinancing,bold:true},
+    {label:"FLUSSO DI CASSA NETTO",values:f.netCF,bold:true,highlight:true},
+    {label:"Cassa cumulata",values:f.cumCash,bold:true},
+  ]);
+
+  // KPI
+  addTitle("INDICATORI CHIAVE (KPI)");
+  addTable("Redditività",[
+    {label:"Margine lordo %",values:f.grossMarginPct,pct:true},
+    {label:"Margine EBITDA %",values:f.ebitdaMargin,pct:true},
+    {label:"Margine netto %",values:f.netMargin,pct:true},
+    {label:"ROE",values:f.roe,pct:true},
+    {label:"ROA",values:f.roa,pct:true},
+  ]);
+  addTable("Solidità ed efficienza",[
+    {label:"Current ratio",values:f.currentRatio},
+    {label:"Rapporto indebitamento",values:f.debtRatio,pct:true},
+    {label:"Organico",values:f.headcount},
+    {label:"Ricavo per dipendente",values:f.revPerEmp},
+  ]);
+
+  doc.save(`piano-economico-${company.name||"azienda"}.pdf`);
+}
+
+function exportExcel(company,financials,revenues,hrs,opexItems,investments,assumptions){
+  const n=company.yearsCount;
+  const wb=XLSX.utils.book_new();
+  const f=financials;
+  const hdr=["Voce",...YL.slice(0,n)];
+
+  const makeSheet=(name,sections)=>{
+    const data=[];
+    sections.forEach(sec=>{
+      if(sec.title){data.push([sec.title]);data.push(hdr)}
+      sec.rows.forEach(r=>{
+        data.push([r.label,...r.values.slice(0,n).map(v=>r.pct?fmtPct(v):Math.round(v*100)/100)]);
+      });
+      data.push([]);
+    });
+    const ws=XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"]=[{wch:35},...Array(n).fill({wch:16})];
+    XLSX.utils.book_append_sheet(wb,ws,name);
+  };
+
+  // Conto Economico
+  makeSheet("Conto Economico",[{title:"CONTO ECONOMICO PREVISIONALE",rows:[
+    {label:"Ricavi totali",values:f.totalRevenue},
+    {label:"(−) Costo del venduto",values:f.totalCOGS.map(v=>-v)},
+    {label:"MARGINE LORDO",values:f.grossProfit},
+    {label:"Margine lordo %",values:f.grossMarginPct,pct:true},
+    {label:"(−) Costo personale",values:f.hrCosts.map(v=>-v)},
+    {label:"(−) Costi operativi",values:f.opexCosts.map(v=>-v)},
+    {label:"(+) Contributi",values:f.grantIncome},
+    {label:"EBITDA",values:f.ebitda},
+    {label:"Margine EBITDA %",values:f.ebitdaMargin,pct:true},
+    {label:"(−) Ammortamenti",values:f.depreciation.map(v=>-v)},
+    {label:"EBIT",values:f.ebit},
+    {label:"(−) Interessi passivi",values:f.interest.map(v=>-v)},
+    {label:"UTILE ANTE IMPOSTE (EBT)",values:f.ebt},
+    {label:"(−) IRES",values:f.ires.map(v=>-v)},
+    {label:"(−) IRAP",values:f.irap.map(v=>-v)},
+    {label:"UTILE NETTO",values:f.netIncome},
+    {label:"Margine netto %",values:f.netMargin,pct:true},
+  ]}]);
+
+  // Stato Patrimoniale
+  makeSheet("Stato Patrimoniale",[
+    {title:"ATTIVO",rows:[
+      {label:"Cassa e disponibilità",values:f.cash.map(v=>Math.max(0,v))},
+      {label:"Crediti commerciali",values:f.ar},
+      {label:"Rimanenze",values:f.inventory},
+      {label:"Immobilizzazioni nette",values:f.netFA},
+      {label:"TOTALE ATTIVO",values:f.totalAssets},
+    ]},
+    {title:"PASSIVO E PATRIMONIO NETTO",rows:[
+      {label:"Debiti commerciali",values:f.ap},
+      {label:"Debiti tributari",values:f.totalTax},
+      {label:"Debito finanziario",values:f.netDebt},
+      {label:"Patrimonio netto",values:f.equity},
+      {label:"TOTALE PASSIVO E PN",values:f.totalLiabEq},
+      {label:"Fabbisogno finanziario",values:f.fundingGap},
+    ]},
+  ]);
+
+  // Cash Flow
+  makeSheet("Cash Flow",[{title:"RENDICONTO FINANZIARIO",rows:[
+    {label:"Utile netto",values:f.netIncome},
+    {label:"(+) Ammortamenti",values:f.depreciation},
+    {label:"(±) Δ Capitale circolante",values:YEARS.map((_,i)=>f.cfOperating[i]-f.netIncome[i]-f.depreciation[i])},
+    {label:"CF OPERATIVO",values:f.cfOperating},
+    {label:"CF INVESTIMENTO",values:f.cfInvesting},
+    {label:"CF FINANZIAMENTO",values:f.cfFinancing},
+    {label:"FLUSSO DI CASSA NETTO",values:f.netCF},
+    {label:"Cassa cumulata",values:f.cumCash},
+  ]}]);
+
+  // KPI
+  makeSheet("KPI",[
+    {title:"REDDITIVITÀ",rows:[
+      {label:"Margine lordo %",values:f.grossMarginPct,pct:true},
+      {label:"Margine EBITDA %",values:f.ebitdaMargin,pct:true},
+      {label:"Margine netto %",values:f.netMargin,pct:true},
+      {label:"ROE",values:f.roe,pct:true},
+      {label:"ROA",values:f.roa,pct:true},
+    ]},
+    {title:"SOLIDITÀ",rows:[
+      {label:"Current ratio",values:f.currentRatio},
+      {label:"Rapporto indebitamento",values:f.debtRatio,pct:true},
+      {label:"Organico",values:f.headcount},
+      {label:"Ricavo per dipendente",values:f.revPerEmp},
+      {label:"CAGR Ricavi",values:YEARS.map(()=>f.revenueCAGR),pct:true},
+    ]},
+  ]);
+
+  // Dati input
+  const inputData=[
+    ["DATI AZIENDA"],["Nome",company.name],["Settore",company.sector],["Scenario",company.scenario],["Anni",company.yearsCount],[],
+    ["LINEE DI RICAVO"],["Nome","Tipo","Prezzo unit.","Margine lordo",...YL.slice(0,n).map(y=>y+" (vol.)"),...YL.slice(0,n).map(y=>y+" (crescita)")],
+    ...revenues.map(r=>[r.name,r.type,r.unitPrice,fmtPct(r.grossMargin),...r.volumes.slice(0,n),...(r.growthRates||[0,.05,.05,.05,.05]).slice(0,n).map(g=>fmtPct(g))]),
+    [],
+    ["PERSONALE"],["Ruolo","Tipo","Costo annuo","Crescita",...YL.slice(0,n).map(y=>y+" (n°)")],
+    ...hrs.map(h=>[h.role,h.type,h.annualCost,fmtPct(h.growthRate),...h.count.slice(0,n)]),
+    [],
+    ["COSTI OPERATIVI"],["Nome","Categoria","Metodo","Valore/Tasso",...YL.slice(0,n)],
+    ...opexItems.map(o=>[o.name,o.category,o.isPercentOfRevenue?"%Ricavi":"Fisso",o.isPercentOfRevenue?fmtPct(o.percentOfRevenue):fmtPct(o.growthRate),...(o.isPercentOfRevenue?Array(n).fill("% sui ricavi"):o.values.slice(0,n))]),
+    [],
+    ["INVESTIMENTI"],["Nome","Tipo","Costo","Vita utile","Anno"],
+    ...investments.map(inv=>[inv.name,inv.type,inv.cost,inv.usefulLife,YL[inv.year]]),
+    [],
+    ["IPOTESI FINANZIARIE"],
+    ["IRES",fmtPct(assumptions.iresRate)],["IRAP",fmtPct(assumptions.irapRate)],["IVA",fmtPct(assumptions.vatRate)],
+    ["DSO (gg)",assumptions.dso],["DPO (gg)",assumptions.dpo],["DIO (gg)",assumptions.dio],
+    ["Tasso interesse",fmtPct(assumptions.interestRate)],["Payout dividendi",fmtPct(assumptions.dividendPayout)],
+    ["Contributo",assumptions.grantAmount],["Anni contributo",assumptions.grantYears],
+  ];
+  const wsInput=XLSX.utils.aoa_to_sheet(inputData);
+  wsInput["!cols"]=[{wch:30},{wch:18},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,wsInput,"Dati Input");
+
+  XLSX.writeFile(wb,`piano-economico-${company.name||"azienda"}.xlsx`);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   UI COMPONENTS
+   ═══════════════════════════════════════════════════════════ */
+const css={
+  input:{width:"100%",padding:"8px 12px",border:"1px solid #e5e7eb",borderRadius:8,fontSize:14,fontFamily:"'JetBrains Mono',monospace",background:"#fafafa",color:"#111827",outline:"none",boxSizing:"border-box"},
+  label:{fontSize:11,fontFamily:"'DM Sans',sans-serif",color:"#6b7280",fontWeight:500,letterSpacing:".02em",textTransform:"uppercase"},
+  card:{background:"#fff",borderRadius:16,border:"1px solid #e5e7eb",overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,.04)"},
+};
+
+function InputField({label,value,onChange,type="number",step,min,suffix,placeholder,tooltip,style}){
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:4,flex:1,...style}}>
+      {label&&<label style={css.label} title={tooltip}>{label}{tooltip&&<span style={{cursor:"help",opacity:.5}}> ⓘ</span>}</label>}
+      <div style={{position:"relative"}}>
+        <input type={type} value={value} step={step} min={min} placeholder={placeholder}
+          onChange={e=>onChange(type==="number"?parseFloat(e.target.value)||0:e.target.value)}
+          style={{...css.input,paddingRight:suffix?36:12}}
+          onFocus={e=>{e.target.style.borderColor="#2563eb";e.target.style.boxShadow="0 0 0 3px rgba(37,99,235,.1)"}}
+          onBlur={e=>{e.target.style.borderColor="#e5e7eb";e.target.style.boxShadow="none"}} />
+        {suffix&&<span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:11,color:"#9ca3af",fontFamily:"'DM Sans',sans-serif"}}>{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+function SelectField({label,value,onChange,options}){
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
+      {label&&<label style={css.label}>{label}</label>}
+      <select value={value} onChange={e=>onChange(e.target.value)}
+        style={{padding:"8px 12px",border:"1px solid #e5e7eb",borderRadius:8,fontSize:14,fontFamily:"'DM Sans',sans-serif",background:"#fafafa",color:"#111827",outline:"none",cursor:"pointer"}}>
+        {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function Card({title,children,accent,actions,collapsible,defaultOpen=true}){
+  const[open,setOpen]=useState(defaultOpen);
+  return(
+    <div style={css.card}>
+      {title&&<div onClick={collapsible?()=>setOpen(!open):undefined}
+        style={{padding:"16px 20px",borderBottom:open?"1px solid #f3f4f6":"none",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:collapsible?"pointer":"default",
+          background:accent?"linear-gradient(135deg,#1e3a5f 0%,#0f2440 100%)":"transparent"}}>
+        <h3 style={{margin:0,fontSize:15,fontFamily:"'Playfair Display',serif",fontWeight:700,color:accent?"#fff":"#111827"}}>{title}</h3>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>{actions}{collapsible&&<span style={{color:accent?"#94a3b8":"#9ca3af",fontSize:12,transition:"transform .2s",transform:open?"rotate(180deg)":"rotate(0)"}}> ▼</span>}</div>
+      </div>}
+      {open&&<div style={{padding:20}} className="fade-in">{children}</div>}
+    </div>
+  );
+}
+
+function Btn({children,onClick,primary,small,danger,disabled}){
+  return(<button onClick={onClick} disabled={disabled}
+    style={{padding:small?"6px 12px":"10px 20px",borderRadius:10,border:primary?"none":danger?"1px solid #fca5a5":"1px solid #d1d5db",
+      background:primary?"linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%)":danger?"#fef2f2":"#fff",
+      color:primary?"#fff":danger?"#dc2626":"#374151",fontSize:small?12:14,fontFamily:"'DM Sans',sans-serif",fontWeight:600,cursor:disabled?"not-allowed":"pointer",
+      transition:"all .2s",opacity:disabled?.5:1}}>{children}</button>);
+}
+
+function Tip({text}){return(<div style={{padding:"12px 16px",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,fontSize:13,color:"#92400e",fontFamily:"'DM Sans',sans-serif",lineHeight:1.6,marginBottom:16}}>💡 {text}</div>)}
+
+function YearHeader({n}){
+  return(<div style={{display:"grid",gridTemplateColumns:`220px repeat(${n},1fr)`,gap:8,padding:"8px 0",borderBottom:"2px solid #1e3a5f",marginBottom:4}}>
+    <span style={{...css.label,letterSpacing:".05em"}}>Voce</span>
+    {YL.slice(0,n).map((y,i)=><span key={i} style={{...css.label,textAlign:"right",paddingRight:8,letterSpacing:".05em"}}>{y}</span>)}
+  </div>);
+}
+
+function YearRow({label,values,n,bold,highlight,pct}){
+  return(<div style={{display:"grid",gridTemplateColumns:`220px repeat(${n},1fr)`,gap:8,padding:"6px 0",borderBottom:"1px solid #f9fafb",alignItems:"center",background:highlight?"rgba(37,99,235,.03)":"transparent"}}>
+    <span style={{fontSize:13,fontFamily:"'DM Sans',sans-serif",fontWeight:bold?700:400,color:bold?"#111827":"#4b5563",paddingLeft:bold?0:8}}>{label}</span>
+    {values.slice(0,n).map((v,i)=><span key={i} style={{fontSize:13,fontFamily:"'JetBrains Mono',monospace",fontWeight:bold?700:400,color:v<0?"#dc2626":bold?"#111827":"#374151",textAlign:"right",paddingRight:8}}>{pct?fmtPct(v):fmt(v)}</span>)}
+  </div>);
+}
+
+function Badge({children,color="#2563eb"}){return(<span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif",background:color+"15",color,marginLeft:6}}>{children}</span>)}
+
+/* ═══════════════════════════════════════════════════════════
+   STEP COMPONENTS
+   ═══════════════════════════════════════════════════════════ */
+function StepCompany({company:c,setCompany:set}){
+  return(<div style={{display:"flex",flexDirection:"column",gap:20}}>
+    <Tip text="Inserisci i dati generali dell'impresa. Lo scenario influenza i ricavi: Pessimistico applica −15%, Ottimistico +15%." />
+    <Card title="Dati Azienda">
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <InputField label="Nome Azienda" value={c.name} onChange={v=>set({...c,name:v})} type="text" placeholder="Es. INGENIA S.R.L." />
+        <InputField label="Settore" value={c.sector} onChange={v=>set({...c,sector:v})} type="text" placeholder="Es. Tecnologia" />
+        <SelectField label="Valuta" value={c.currency} onChange={v=>set({...c,currency:v})} options={[{value:"EUR",label:"€ Euro"},{value:"USD",label:"$ Dollaro"},{value:"GBP",label:"£ Sterlina"}]} />
+        <SelectField label="Orizzonte temporale" value={c.yearsCount} onChange={v=>set({...c,yearsCount:parseInt(v)})} options={[{value:3,label:"3 Anni"},{value:5,label:"5 Anni"}]} />
+        <SelectField label="Scenario" value={c.scenario} onChange={v=>set({...c,scenario:v})} options={[{value:"base",label:"🎯 Base"},{value:"pessimistic",label:"⚠️ Pessimistico (−15%)"},{value:"optimistic",label:"🚀 Ottimistico (+15%)"}]} />
+      </div>
+    </Card>
+    <Card title="Come funziona questo strumento">
+      <div style={{fontSize:14,color:"#4b5563",lineHeight:1.7}}>
+        <p style={{margin:"0 0 12px"}}>Procedi passo per passo compilando ogni sezione. Al termine, nella sezione <strong>Risultati</strong> troverai:</p>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {STEPS.map(s=><div key={s.id} style={{padding:"8px 12px",background:"#f9fafb",borderRadius:8,fontSize:13}}><span style={{marginRight:6}}>{s.icon}</span><strong>{s.label}</strong> — {s.desc}</div>)}
+        </div>
+      </div>
+    </Card>
+  </div>);
+}
+
+function StepRevenue({revenues:lines,setRevenues:set,company:{yearsCount:n}}){
+  const add=()=>set([...lines,DEFAULTS.revenueLine()]);
+  const rm=i=>set(lines.filter((_,idx)=>idx!==i));
+  const upd=(i,f,v)=>{const u=[...lines];u[i]={...u[i],[f]:v};set(u)};
+  const updArr=(i,field,yi,v)=>{const u=[...lines];u[i]={...u[i],[field]:u[i][field].map((x,j)=>j===yi?v:x)};set(u)};
+
+  return(<div style={{display:"flex",flexDirection:"column",gap:20}}>
+    <Tip text="Definisci ogni linea di ricavo. Inserisci almeno il volume dell'Anno 1: gli anni successivi saranno calcolati automaticamente con il tasso di crescita indicato. Se preferisci, puoi compilare anche i volumi manualmente per ogni anno." />
+    {lines.map((l,i)=><Card key={i} title={l.name||`Linea di Ricavo ${i+1}`} collapsible defaultOpen={i===lines.length-1}
+      actions={<Btn small danger onClick={()=>rm(i)}>✕</Btn>}>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:12}}>
+          <InputField label="Nome" value={l.name} onChange={v=>upd(i,"name",v)} type="text" placeholder="Es. Licenza Software" />
+          <SelectField label="Tipo" value={l.type} onChange={v=>upd(i,"type",v)} options={[{value:"product",label:"Prodotto"},{value:"service",label:"Servizio"},{value:"subscription",label:"Abbonamento"}]} />
+          <InputField label="Prezzo unitario" value={l.unitPrice} onChange={v=>upd(i,"unitPrice",v)} suffix="€" />
+          <InputField label="Margine lordo" value={Math.round(l.grossMargin*100)} onChange={v=>upd(i,"grossMargin",v/100)} suffix="%" tooltip="% ricavo che resta dopo COGS" />
+        </div>
+        <div><label style={{...css.label,marginBottom:8,display:"block"}}>Volumi previsti per anno <span style={{fontWeight:400,textTransform:"none"}}>(lascia 0 per auto-calcolo da crescita)</span></label>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(${n},1fr)`,gap:8}}>
+            {YEARS.slice(0,n).map((_,yi)=><InputField key={yi} label={YL[yi]} value={l.volumes[yi]} onChange={v=>updArr(i,"volumes",yi,v)} min={0} />)}
+          </div>
+        </div>
+        <div><label style={{...css.label,marginBottom:8,display:"block"}}>Tasso di crescita annuo volumi</label>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(${n},1fr)`,gap:8}}>
+            {YEARS.slice(0,n).map((_,yi)=><InputField key={yi} label={YL[yi]} value={Math.round((l.growthRates?l.growthRates[yi]:0.05)*100)} onChange={v=>updArr(i,"growthRates",yi,v/100)} suffix="%" />)}
+          </div>
+        </div>
+      </div>
+    </Card>)}
+    <Btn primary onClick={add}>+ Aggiungi Linea di Ricavo</Btn>
+  </div>);
+}
+
+function StepProduction({revenues}){
+  return(<div style={{display:"flex",flexDirection:"column",gap:20}}>
+    <Tip text="I costi di produzione (COGS) sono calcolati automaticamente: Ricavi × (1 − Margine Lordo). Modifica i margini nel passo Ricavi." />
+    <Card title="Riepilogo Costi di Produzione">
+      {revenues.length===0?<p style={{color:"#9ca3af"}}>Nessuna linea di ricavo definita.</p>:
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {revenues.map((l,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"12px 14px",background:"#f9fafb",borderRadius:10,alignItems:"center"}}>
+          <div><strong>{l.name||`Linea ${i+1}`}</strong><Badge color="#059669">{l.type==="product"?"Prodotto":l.type==="service"?"Servizio":"Abbonamento"}</Badge></div>
+          <div style={{display:"flex",gap:20,fontFamily:"'JetBrains Mono',monospace",fontSize:13}}>
+            <span>Margine: <strong style={{color:"#059669"}}>{Math.round(l.grossMargin*100)}%</strong></span>
+            <span>COGS: <strong style={{color:"#dc2626"}}>{Math.round((1-l.grossMargin)*100)}%</strong></span>
+          </div>
+        </div>)}
+      </div>}
+    </Card>
+  </div>);
+}
+
+function StepHR({hrs,setHrs:set,company:{yearsCount:n}}){
+  const add=()=>set([...hrs,DEFAULTS.hr()]);
+  const rm=i=>set(hrs.filter((_,idx)=>idx!==i));
+  const upd=(i,f,v)=>{const u=[...hrs];u[i]={...u[i],[f]:v};set(u)};
+  const updC=(i,yi,v)=>{const u=[...hrs];u[i]={...u[i],count:u[i].count.map((x,j)=>j===yi?v:x)};set(u)};
+
+  return(<div style={{display:"flex",flexDirection:"column",gap:20}}>
+    <Tip text="Costo annuo lordo = costo azienda totale (RAL + contributi + TFR). Il tasso di crescita si applica al costo." />
+    {hrs.map((h,i)=><Card key={i} title={h.role||`Risorsa ${i+1}`} collapsible defaultOpen={i===hrs.length-1}
+      actions={<Btn small danger onClick={()=>rm(i)}>✕</Btn>}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:12}}>
+          <InputField label="Ruolo" value={h.role} onChange={v=>upd(i,"role",v)} type="text" placeholder="Es. Sviluppatore" />
+          <SelectField label="Tipo" value={h.type} onChange={v=>upd(i,"type",v)} options={[{value:"direct",label:"Diretto (produz.)"},{value:"indirect",label:"Indiretto (staff)"}]} />
+          <InputField label="Costo annuo lordo" value={h.annualCost} onChange={v=>upd(i,"annualCost",v)} suffix="€" />
+          <InputField label="Crescita annua" value={Math.round(h.growthRate*100)} onChange={v=>upd(i,"growthRate",v/100)} suffix="%" />
+        </div>
+        <div><label style={{...css.label,marginBottom:8,display:"block"}}>N° persone per anno</label>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(${n},1fr)`,gap:8}}>
+            {YEARS.slice(0,n).map((_,yi)=><InputField key={yi} label={YL[yi]} value={h.count[yi]} onChange={v=>updC(i,yi,v)} min={0} step={1} />)}
+          </div>
+        </div>
+      </div>
+    </Card>)}
+    <Btn primary onClick={add}>+ Aggiungi Risorsa</Btn>
+  </div>);
+}
+
+function StepOpEx({opexItems:items,setOpexItems:set,company:{yearsCount:n}}){
+  const add=()=>set([...items,DEFAULTS.opex()]);
+  const rm=i=>set(items.filter((_,idx)=>idx!==i));
+  const upd=(i,f,v)=>{const u=[...items];u[i]={...u[i],[f]:v};set(u)};
+  const updV=(i,yi,v)=>{const u=[...items];u[i]={...u[i],values:u[i].values.map((x,j)=>j===yi?v:x)};set(u)};
+
+  return(<div style={{display:"flex",flexDirection:"column",gap:20}}>
+    <Tip text="Importo fisso: inserisci almeno il valore dell'Anno 1. Gli anni successivi lasciati a 0 saranno calcolati automaticamente con il tasso di crescita. Oppure compila tutti gli anni manualmente. % sui ricavi: calcolo automatico su tutti gli anni." />
+    {items.map((o,i)=><Card key={i} title={o.name||`Costo ${i+1}`} collapsible defaultOpen={i===items.length-1}
+      actions={<Btn small danger onClick={()=>rm(i)}>✕</Btn>}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:12}}>
+          <InputField label="Descrizione" value={o.name} onChange={v=>upd(i,"name",v)} type="text" placeholder="Es. Affitto ufficio" />
+          <SelectField label="Categoria" value={o.category} onChange={v=>upd(i,"category",v)} options={[{value:"general",label:"Generale"},{value:"rent",label:"Affitto"},{value:"marketing",label:"Marketing"},{value:"utilities",label:"Utenze"},{value:"insurance",label:"Assicurazione"},{value:"other",label:"Altro"}]} />
+          <SelectField label="Metodo" value={o.isPercentOfRevenue?"percent":"fixed"} onChange={v=>upd(i,"isPercentOfRevenue",v==="percent")} options={[{value:"fixed",label:"Importo fisso"},{value:"percent",label:"% sui Ricavi"}]} />
+        </div>
+        {o.isPercentOfRevenue?
+          <InputField label="% sui ricavi" value={(o.percentOfRevenue*100).toFixed(1)} onChange={v=>upd(i,"percentOfRevenue",v/100)} suffix="%" step={0.1} />:
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <label style={{...css.label,display:"block"}}>Importi per anno <span style={{fontWeight:400,textTransform:"none"}}>(lascia 0 per auto-crescita da Anno 1)</span></label>
+            <div style={{display:"grid",gridTemplateColumns:`repeat(${n},1fr)`,gap:8}}>
+              {YEARS.slice(0,n).map((_,yi)=><InputField key={yi} label={YL[yi]} value={o.values[yi]} onChange={v=>updV(i,yi,v)} suffix="€" />)}
+            </div>
+            <InputField label="Tasso di crescita annuo (se auto)" value={Math.round(o.growthRate*100)} onChange={v=>upd(i,"growthRate",v/100)} suffix="%" style={{maxWidth:200}} />
+          </div>}
+      </div>
+    </Card>)}
+    <Btn primary onClick={add}>+ Aggiungi Costo Operativo</Btn>
+  </div>);
+}
+
+function StepInvestments({investments:invs,setInvestments:set,company:{yearsCount:n}}){
+  const add=()=>set([...invs,DEFAULTS.investment()]);
+  const rm=i=>set(invs.filter((_,idx)=>idx!==i));
+  const upd=(i,f,v)=>{const u=[...invs];u[i]={...u[i],[f]:v};set(u)};
+
+  return(<div style={{display:"flex",flexDirection:"column",gap:20}}>
+    <Tip text="L'ammortamento è calcolato a quote costanti: Costo ÷ Vita utile. Inizia dall'anno di acquisto." />
+    {invs.map((inv,i)=><Card key={i} title={inv.name||`Investimento ${i+1}`} collapsible defaultOpen={i===invs.length-1}
+      actions={<Btn small danger onClick={()=>rm(i)}>✕</Btn>}>
+      <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:12}}>
+        <InputField label="Descrizione" value={inv.name} onChange={v=>upd(i,"name",v)} type="text" placeholder="Es. Macchinari" />
+        <SelectField label="Tipo" value={inv.type} onChange={v=>upd(i,"type",v)} options={[{value:"tangible",label:"Materiale"},{value:"intangible",label:"Immateriale"}]} />
+        <InputField label="Costo" value={inv.cost} onChange={v=>upd(i,"cost",v)} suffix="€" />
+        <InputField label="Vita utile" value={inv.usefulLife} onChange={v=>upd(i,"usefulLife",v)} suffix="anni" min={1} step={1} />
+        <SelectField label="Anno acquisto" value={inv.year} onChange={v=>upd(i,"year",parseInt(v))} options={YEARS.slice(0,n).map((_,i)=>({value:i,label:YL[i]}))} />
+      </div>
+    </Card>)}
+    <Btn primary onClick={add}>+ Aggiungi Investimento</Btn>
+  </div>);
+}
+
+function StepAssumptions({assumptions:a,setAssumptions:set,company:{yearsCount:n}}){
+  const upd=(f,v)=>set({...a,[f]:v});
+  const updA=(f,i,v)=>{const arr=[...a[f]];arr[i]=v;set({...a,[f]:arr})};
+
+  return(<div style={{display:"flex",flexDirection:"column",gap:20}}>
+    <Tip text="Valori preimpostati sulla normativa fiscale italiana. DSO/DPO/DIO determinano il fabbisogno di capitale circolante." />
+    <Card title="Fiscalità">
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16}}>
+        <InputField label="IRES" value={(a.iresRate*100).toFixed(1)} onChange={v=>upd("iresRate",v/100)} suffix="%" tooltip="24,5% standard" />
+        <InputField label="IRAP" value={(a.irapRate*100).toFixed(1)} onChange={v=>upd("irapRate",v/100)} suffix="%" tooltip="4,97% standard" />
+        <InputField label="IVA" value={Math.round(a.vatRate*100)} onChange={v=>upd("vatRate",v/100)} suffix="%" />
+      </div>
+    </Card>
+    <Card title="Capitale Circolante">
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16}}>
+        <InputField label="DSO (gg incasso)" value={a.dso} onChange={v=>upd("dso",v)} suffix="gg" tooltip="Tempo medio incasso crediti" />
+        <InputField label="DPO (gg pagamento)" value={a.dpo} onChange={v=>upd("dpo",v)} suffix="gg" tooltip="Tempo medio pagamento fornitori" />
+        <InputField label="DIO (gg magazzino)" value={a.dio} onChange={v=>upd("dio",v)} suffix="gg" tooltip="Giacenza media magazzino" />
+      </div>
+    </Card>
+    <Card title="Debito Finanziario">
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <InputField label="Tasso di interesse" value={(a.interestRate*100).toFixed(1)} onChange={v=>upd("interestRate",v/100)} suffix="%" />
+        <label style={css.label}>Nuovo debito per anno</label>
+        <div style={{display:"grid",gridTemplateColumns:`repeat(${n},1fr)`,gap:8}}>
+          {YEARS.slice(0,n).map((_,i)=><InputField key={i} label={YL[i]} value={a.debtAmount[i]} onChange={v=>updA("debtAmount",i,v)} suffix="€" />)}
+        </div>
+        <label style={css.label}>Rimborso debito per anno</label>
+        <div style={{display:"grid",gridTemplateColumns:`repeat(${n},1fr)`,gap:8}}>
+          {YEARS.slice(0,n).map((_,i)=><InputField key={i} label={YL[i]} value={a.debtRepayment[i]} onChange={v=>updA("debtRepayment",i,v)} suffix="€" />)}
+        </div>
+      </div>
+    </Card>
+    <Card title="Equity e Dividendi">
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <label style={css.label}>Apporto equity per anno</label>
+        <div style={{display:"grid",gridTemplateColumns:`repeat(${n},1fr)`,gap:8}}>
+          {YEARS.slice(0,n).map((_,i)=><InputField key={i} label={YL[i]} value={a.equityInjection[i]} onChange={v=>updA("equityInjection",i,v)} suffix="€" />)}
+        </div>
+        <InputField label="Payout dividendi (% utile netto)" value={Math.round(a.dividendPayout*100)} onChange={v=>upd("dividendPayout",v/100)} suffix="%" />
+      </div>
+    </Card>
+    <Card title="Contributi e Agevolazioni">
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <InputField label="Contributo a fondo perduto" value={a.grantAmount} onChange={v=>upd("grantAmount",v)} suffix="€" tooltip="Es. bando PNRR, Transizione 5.0" />
+        <InputField label="Anni di competenza" value={a.grantYears} onChange={v=>upd("grantYears",v)} suffix="anni" min={1} step={1} />
+      </div>
+    </Card>
+  </div>);
+}
+
+function StepResults({financials:f,company}){
+  const n=company.yearsCount;
+  const[tab,setTab]=useState("is");
+  const tabs=[{id:"is",label:"Conto Economico"},{id:"bs",label:"Stato Patrimoniale"},{id:"cf",label:"Cash Flow"},{id:"kpi",label:"KPI"}];
+  const Div=()=><div style={{height:1,background:"#e5e7eb",margin:"4px 0"}} />;
+  const hasFundingGap=f.fundingGap.slice(0,n).some(v=>v>0);
+
+  return(<div style={{display:"flex",flexDirection:"column",gap:20}}>
+    {hasFundingGap&&<div style={{padding:"14px 20px",background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:12,fontSize:13,color:"#991b1b",fontWeight:600}}>
+      ⚠️ ATTENZIONE: Il piano evidenzia un fabbisogno finanziario non coperto. Valuta maggiori apporti di equity, finanziamenti o riduzione costi.
+    </div>}
+
+    <div style={{display:"flex",gap:4,background:"#f3f4f6",padding:4,borderRadius:12}}>
+      {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)}
+        style={{flex:1,padding:"10px 16px",border:"none",borderRadius:8,background:tab===t.id?"#fff":"transparent",
+          color:tab===t.id?"#111827":"#6b7280",fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",
+          boxShadow:tab===t.id?"0 1px 3px rgba(0,0,0,.08)":"none",transition:"all .2s"}}>{t.label}</button>)}
+    </div>
+
+    {tab==="is"&&<Card title="Conto Economico Previsionale" accent>
+      <YearHeader n={n} />
+      <YearRow label="Ricavi totali" values={f.totalRevenue} n={n} bold highlight />
+      <YearRow label="  − Costo del venduto" values={f.totalCOGS.map(v=>-v)} n={n} />
+      <Div /><YearRow label="MARGINE LORDO" values={f.grossProfit} n={n} bold highlight />
+      <YearRow label="  Margine lordo %" values={f.grossMarginPct} n={n} pct />
+      <Div /><YearRow label="  − Costo personale" values={f.hrCosts.map(v=>-v)} n={n} />
+      <YearRow label="  − Costi operativi" values={f.opexCosts.map(v=>-v)} n={n} />
+      <YearRow label="  + Contributi" values={f.grantIncome} n={n} />
+      <Div /><YearRow label="EBITDA" values={f.ebitda} n={n} bold highlight />
+      <YearRow label="  Margine EBITDA %" values={f.ebitdaMargin} n={n} pct />
+      <YearRow label="  − Ammortamenti" values={f.depreciation.map(v=>-v)} n={n} />
+      <Div /><YearRow label="EBIT" values={f.ebit} n={n} bold />
+      <YearRow label="  − Interessi passivi" values={f.interest.map(v=>-v)} n={n} />
+      <Div /><YearRow label="Utile ante imposte (EBT)" values={f.ebt} n={n} bold />
+      <YearRow label="  − IRES" values={f.ires.map(v=>-v)} n={n} />
+      <YearRow label="  − IRAP" values={f.irap.map(v=>-v)} n={n} />
+      <Div /><YearRow label="UTILE NETTO" values={f.netIncome} n={n} bold highlight />
+      <YearRow label="  Margine netto %" values={f.netMargin} n={n} pct />
+    </Card>}
+
+    {tab==="bs"&&<Card title="Stato Patrimoniale Previsionale" accent>
+      <YearHeader n={n} />
+      <div style={{padding:"4px 0",fontSize:12,fontWeight:700,color:"#1e3a5f",textTransform:"uppercase",letterSpacing:".05em"}}>ATTIVO</div>
+      <YearRow label="Cassa e disponibilità" values={f.cash.map(v=>Math.max(0,v))} n={n} />
+      <YearRow label="Crediti commerciali" values={f.ar} n={n} />
+      <YearRow label="Rimanenze" values={f.inventory} n={n} />
+      <YearRow label="Immobilizzazioni nette" values={f.netFA} n={n} />
+      <Div /><YearRow label="TOTALE ATTIVO" values={f.totalAssets} n={n} bold highlight />
+      <div style={{height:12}} />
+      <div style={{padding:"4px 0",fontSize:12,fontWeight:700,color:"#1e3a5f",textTransform:"uppercase",letterSpacing:".05em"}}>PASSIVO E PATRIMONIO NETTO</div>
+      <YearRow label="Debiti commerciali" values={f.ap} n={n} />
+      <YearRow label="Debiti tributari" values={f.totalTax} n={n} />
+      <YearRow label="Debito finanziario" values={f.netDebt} n={n} />
+      <Div /><YearRow label="Patrimonio netto" values={f.equity} n={n} bold />
+      <Div /><YearRow label="TOTALE PASSIVO E PN" values={f.totalLiabEq} n={n} bold highlight />
+      {hasFundingGap&&<><Div /><YearRow label="⚠️ Fabbisogno finanziario" values={f.fundingGap} n={n} bold /></>}
+    </Card>}
+
+    {tab==="cf"&&<Card title="Rendiconto Finanziario" accent>
+      <YearHeader n={n} />
+      <div style={{padding:"4px 0",fontSize:12,fontWeight:700,color:"#1e3a5f",textTransform:"uppercase"}}>Attività operativa</div>
+      <YearRow label="Utile netto" values={f.netIncome} n={n} />
+      <YearRow label="  + Ammortamenti" values={f.depreciation} n={n} />
+      <YearRow label="  ± Δ Capitale circolante" values={YEARS.map((_,i)=>f.cfOperating[i]-f.netIncome[i]-f.depreciation[i])} n={n} />
+      <YearRow label="CF OPERATIVO" values={f.cfOperating} n={n} bold highlight />
+      <div style={{height:8}} />
+      <div style={{padding:"4px 0",fontSize:12,fontWeight:700,color:"#1e3a5f",textTransform:"uppercase"}}>Attività di investimento</div>
+      <YearRow label="  − Investimenti" values={f.cfInvesting} n={n} />
+      <div style={{height:8}} />
+      <div style={{padding:"4px 0",fontSize:12,fontWeight:700,color:"#1e3a5f",textTransform:"uppercase"}}>Attività di finanziamento</div>
+      <YearRow label="CF FINANZIAMENTO" values={f.cfFinancing} n={n} bold />
+      <Div /><YearRow label="FLUSSO DI CASSA NETTO" values={f.netCF} n={n} bold highlight />
+      <YearRow label="Cassa cumulata" values={f.cumCash} n={n} bold />
+    </Card>}
+
+    {tab==="kpi"&&<div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <Card title="Indicatori di Redditività" accent>
+        <YearHeader n={n} />
+        <YearRow label="Margine lordo %" values={f.grossMarginPct} n={n} pct />
+        <YearRow label="Margine EBITDA %" values={f.ebitdaMargin} n={n} pct />
+        <YearRow label="Margine netto %" values={f.netMargin} n={n} pct />
+        <YearRow label="ROE" values={f.roe} n={n} pct />
+        <YearRow label="ROA" values={f.roa} n={n} pct />
+      </Card>
+      <Card title="Solidità e Efficienza">
+        <YearHeader n={n} />
+        <YearRow label="Current ratio" values={f.currentRatio} n={n} />
+        <YearRow label="Rapporto indebitamento" values={f.debtRatio} n={n} pct />
+        <YearRow label="Organico" values={f.headcount} n={n} />
+        <YearRow label="Ricavo per dipendente" values={f.revPerEmp} n={n} />
+      </Card>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <Card title="CAGR Ricavi">
+          <div style={{fontSize:28,fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:f.revenueCAGR>=0?"#059669":"#dc2626",padding:8}}>
+            {fmtPct(f.revenueCAGR)}
+          </div>
+        </Card>
+        <Card title="Utile Netto ultimo anno">
+          <div style={{fontSize:28,fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:f.netIncome[n-1]>=0?"#059669":"#dc2626",padding:8}}>
+            {fmtEur(f.netIncome[n-1])}
+          </div>
+        </Card>
+      </div>
+    </div>}
+  </div>);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MAIN APP
+   ═══════════════════════════════════════════════════════════ */
+function App(){
+  const[step,setStep]=useState(0);
+  const[company,setCompany]=useState(DEFAULTS.company);
+  const[revenues,setRevenues]=useState([DEFAULTS.revenueLine()]);
+  const[hrs,setHrs]=useState([DEFAULTS.hr()]);
+  const[opexItems,setOpexItems]=useState([DEFAULTS.opex()]);
+  const[investments,setInvestments]=useState([DEFAULTS.investment()]);
+  const[assumptions,setAssumptions]=useState(DEFAULTS.assumptions);
+  const fileRef=useRef(null);
+
+  const financials=useMemo(()=>computeFinancials(company,revenues,hrs,opexItems,investments,assumptions),[company,revenues,hrs,opexItems,investments,assumptions]);
+
+  const exportJSON=()=>{
+    const data={version:"1.0",type:"piano-economico",company,revenues,hrs,opexItems,investments,assumptions,generatedAt:new Date().toISOString()};
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`piano-economico-${company.name||"azienda"}.json`;a.click();
+  };
+
+  const importJSON=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      try{
+        const data=JSON.parse(ev.target.result);
+        if(data.company)setCompany({...DEFAULTS.company,...data.company});
+        if(data.revenues)setRevenues(data.revenues);
+        if(data.hrs)setHrs(data.hrs);
+        if(data.opexItems)setOpexItems(data.opexItems);
+        if(data.investments)setInvestments(data.investments);
+        if(data.assumptions)setAssumptions({...DEFAULTS.assumptions,...data.assumptions});
+        alert("✅ Piano importato correttamente!");
+      }catch(err){alert("❌ Errore: file non valido. Usa un file .json generato da questa app.")}
+    };
+    reader.readAsText(file);
+    e.target.value="";
+  };
+
+  return(
+    <div style={{minHeight:"100vh"}}>
+      <header style={{background:"linear-gradient(135deg,#0f2440 0%,#1e3a5f 50%,#1a365d 100%)",padding:"16px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"3px solid #d4af37"}}>
+        <div>
+          <h1 style={{margin:0,fontSize:22,fontFamily:"'Playfair Display',serif",fontWeight:900,color:"#fff"}}>Piano Economico</h1>
+          <p style={{margin:"2px 0 0",fontSize:12,color:"#94a3b8",fontWeight:500}}>
+            {company.name||"Nuova Azienda"}
+            {company.scenario!=="base"&&<Badge color="#d4af37">{company.scenario==="pessimistic"?"Pessimistico":"Ottimistico"}</Badge>}
+          </p>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <input ref={fileRef} type="file" accept=".json" onChange={importJSON} style={{display:"none"}} />
+          <Btn small onClick={()=>fileRef.current.click()}>📂 Importa JSON</Btn>
+          <Btn small onClick={exportJSON}>💾 Esporta JSON</Btn>
+          <Btn small onClick={()=>exportExcel(company,financials,revenues,hrs,opexItems,investments,assumptions)}>📗 Esporta Excel</Btn>
+          <Btn small onClick={()=>exportPDF(company,financials,revenues,hrs,opexItems,investments,assumptions)}>📕 Esporta PDF</Btn>
+        </div>
+      </header>
+
+      <div style={{display:"flex",maxWidth:1200,margin:"0 auto",padding:"0 16px",gap:24}}>
+        <nav style={{width:200,flexShrink:0,paddingTop:24,position:"sticky",top:0,height:"fit-content"}}>
+          {STEPS.map(s=><button key={s.id} onClick={()=>setStep(s.id)}
+            style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 16px",border:"none",borderRadius:10,marginBottom:4,
+              background:step===s.id?"#fff":"transparent",boxShadow:step===s.id?"0 2px 8px rgba(0,0,0,.06)":"none",cursor:"pointer",textAlign:"left",transition:"all .2s"}}>
+            <span style={{fontSize:18}}>{s.icon}</span>
+            <div>
+              <div style={{fontSize:13,fontWeight:step===s.id?700:500,color:step===s.id?"#1e3a5f":"#6b7280"}}>{s.label}</div>
+              <div style={{fontSize:10,color:"#9ca3af",marginTop:1}}>{s.id+1}/{STEPS.length}</div>
+            </div>
+          </button>)}
+
+          <div style={{marginTop:16,padding:14,background:"#fff",borderRadius:12,border:"1px solid #e5e7eb"}}>
+            <div style={{fontSize:10,color:"#6b7280",fontWeight:600,textTransform:"uppercase",marginBottom:8,letterSpacing:".05em"}}>Anteprima Anno 1</div>
+            {[["Ricavi",financials.totalRevenue[0]],["EBITDA",financials.ebitda[0]],["Utile",financials.netIncome[0]],["Cassa",financials.cumCash[0]]].map(([l,v])=>
+              <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+                <span style={{color:"#6b7280"}}>{l}</span>
+                <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600,color:v>=0?"#059669":"#dc2626"}}>{fmt(v)}</span>
+              </div>
+            )}
+          </div>
+
+          <div style={{marginTop:12,padding:14,background:"#f0f9ff",borderRadius:12,border:"1px solid #bae6fd",fontSize:11,color:"#0369a1",lineHeight:1.5}}>
+            <strong>Esporta come:</strong><br/>
+            📗 Excel — foglio modificabile<br/>
+            📕 PDF — report stampabile<br/>
+            💾 JSON — ricarica qui
+          </div>
+        </nav>
+
+        <main style={{flex:1,paddingTop:24,paddingBottom:80,minWidth:0}}>
+          <div className="fade-in">
+            {step===0&&<StepCompany company={company} setCompany={setCompany} />}
+            {step===1&&<StepRevenue revenues={revenues} setRevenues={setRevenues} company={company} />}
+            {step===2&&<StepProduction revenues={revenues} />}
+            {step===3&&<StepHR hrs={hrs} setHrs={setHrs} company={company} />}
+            {step===4&&<StepOpEx opexItems={opexItems} setOpexItems={setOpexItems} company={company} />}
+            {step===5&&<StepInvestments investments={investments} setInvestments={setInvestments} company={company} />}
+            {step===6&&<StepAssumptions assumptions={assumptions} setAssumptions={setAssumptions} company={company} />}
+            {step===7&&<StepResults financials={financials} company={company} />}
+          </div>
+
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:32,paddingTop:20,borderTop:"1px solid #e5e7eb"}}>
+            <Btn onClick={()=>setStep(Math.max(0,step-1))} disabled={step===0}>← Indietro</Btn>
+            <div style={{display:"flex",gap:8}}>
+              {step===7&&<>
+                <Btn onClick={()=>exportExcel(company,financials,revenues,hrs,opexItems,investments,assumptions)}>📗 Excel</Btn>
+                <Btn onClick={()=>exportPDF(company,financials,revenues,hrs,opexItems,investments,assumptions)}>📕 PDF</Btn>
+              </>}
+              {step<STEPS.length-1?
+                <Btn primary onClick={()=>setStep(step+1)}>Avanti →</Btn>:
+                <Btn primary onClick={exportJSON}>💾 Salva Piano</Btn>}
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<App />,document.getElementById("root"));
+</script>
+</body>
+</html>

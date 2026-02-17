@@ -85,7 +85,9 @@ const DEFAULTS = {
     sector: "",
     currency: "EUR",
     yearsCount: 3,
-    scenario: "base"
+    scenario: "base",
+    capitaleSociale: 10000,
+    isExisting: false
   },
   revenueLine: () => ({
     name: "",
@@ -131,6 +133,14 @@ const DEFAULTS = {
     dividendPayout: 0,
     grantAmount: 0,
     grantYears: 5,
+    tfrRate: 0.0741,
+    taxCreditAmount: 0,
+    taxCreditYears: 3,
+    debtType: "manual",
+    debtDuration: 5,
+    openingCash: 0,
+    openingDebt: 0,
+    openingEquity: 0,
     scenarioMultiplier: {
       base: 1,
       pessimistic: .85,
@@ -212,15 +222,41 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     for (let j = 0; j <= i; j++) d += (assumptions.debtAmount[j] || 0) - (assumptions.debtRepayment[j] || 0);
     return Math.max(0, d);
   });
+
+  // Auto-ammortamento debito (francese: rata costante)
+  if (assumptions.debtType === "francese") {
+    const dur = assumptions.debtDuration || 5;
+    const rate = assumptions.interestRate;
+    YEARS.forEach((_, i) => {
+      if (assumptions.debtAmount[i] > 0 && rate > 0) {
+        const pmt = assumptions.debtAmount[i] * rate * Math.pow(1 + rate, dur) / (Math.pow(1 + rate, dur) - 1);
+        for (let y = 1; y <= dur && i + y < 5; y++) {
+          const remaining = assumptions.debtAmount[i] * Math.pow(1 + rate, y - 1) - (pmt - assumptions.debtAmount[i] * rate) * ((Math.pow(1 + rate, y - 1) - 1) / rate);
+          const intPortion = remaining * rate;
+          const capPortion = pmt - intPortion;
+          assumptions.debtRepayment[i + y] = (assumptions.debtRepayment[i + y] || 0) + capPortion;
+        }
+      }
+    });
+  }
   const interest = YEARS.map((_, i) => {
-    const prev = i > 0 ? netDebt[i - 1] : 0;
+    const prev = i > 0 ? netDebt[i - 1] : assumptions.openingDebt || 0;
     return prev * assumptions.interestRate;
   });
   const ebt = YEARS.map((_, i) => ebit[i] - interest[i]);
   const ires = YEARS.map((_, i) => Math.max(0, ebt[i] * assumptions.iresRate));
   const irap = YEARS.map((_, i) => Math.max(0, ebit[i] * assumptions.irapRate));
-  const totalTax = YEARS.map((_, i) => ires[i] + irap[i]);
+  const totalTaxGross = YEARS.map((_, i) => ires[i] + irap[i]);
+  // Credito d'imposta: riduce le imposte (non genera rimborso)
+  const taxCreditPerYear = assumptions.taxCreditAmount > 0 && assumptions.taxCreditYears > 0 ? assumptions.taxCreditAmount / assumptions.taxCreditYears : 0;
+  const taxCreditUsed = YEARS.map((_, i) => i < (assumptions.taxCreditYears || 3) ? Math.min(taxCreditPerYear, totalTaxGross[i]) : 0);
+  const totalTax = YEARS.map((_, i) => Math.max(0, totalTaxGross[i] - taxCreditUsed[i]));
   const netIncome = YEARS.map((_, i) => ebt[i] - totalTax[i]);
+
+  // TFR: già incluso in hrCosts, ma deve apparire come passività BS
+  const tfrShare = (assumptions.tfrRate || 0.0741) / (1 + (assumptions.tfrRate || 0.0741));
+  const tfrAccrual = YEARS.map((_, i) => hrCosts[i] * tfrShare);
+  const cumTFR = YEARS.map((_, i) => tfrAccrual.slice(0, i + 1).reduce((s, t) => s + t, 0));
   const dividends = YEARS.map((_, i) => Math.max(0, netIncome[i] * assumptions.dividendPayout));
   const ar = YEARS.map((_, i) => totalRevenue[i] * (1 + assumptions.vatRate) * assumptions.dso / 360);
   const inventory = YEARS.map((_, i) => totalCOGS[i] * assumptions.dio / 360);
@@ -230,7 +266,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const grossFA = YEARS.map((_, i) => totalInvestments.slice(0, i + 1).reduce((s, t) => s + t, 0));
   const netFA = YEARS.map((_, i) => grossFA[i] - accDep[i]);
   const equity = YEARS.map((_, i) => {
-    let eq = 0;
+    let eq = assumptions.openingEquity || 0;
     for (let j = 0; j <= i; j++) eq += (assumptions.equityInjection[j] || 0) + netIncome[j] - dividends[j];
     return eq;
   });
@@ -241,7 +277,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const deferredGrant = YEARS.map((_, i) => Math.max(0, assumptions.grantAmount - cumGrantIncome[i]));
   const currentLiabilities = YEARS.map((_, i) => ap[i] + totalTax[i]);
   const totalAssetsNoCash = YEARS.map((_, i) => ar[i] + inventory[i] + netFA[i]);
-  const totalLiabEq = YEARS.map((_, i) => currentLiabilities[i] + deferredGrant[i] + netDebt[i] + equity[i]);
+  const totalLiabEq = YEARS.map((_, i) => currentLiabilities[i] + deferredGrant[i] + netDebt[i] + cumTFR[i] + equity[i]);
   const cash = YEARS.map((_, i) => totalLiabEq[i] - totalAssetsNoCash[i]);
   const totalAssets = YEARS.map((_, i) => totalAssetsNoCash[i] + Math.max(0, cash[i]));
   const fundingGap = YEARS.map((_, i) => cash[i] < 0 ? Math.abs(cash[i]) : 0);
@@ -251,7 +287,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     const wcTrade = i === 0 ? -(ar[0] + inventory[0] - ap[0]) : -(ar[i] - ar[i - 1] + (inventory[i] - inventory[i - 1]) - (ap[i] - ap[i - 1]));
     const wcTax = i === 0 ? totalTax[0] : totalTax[i] - totalTax[i - 1]; // tax accrued but not paid = source of cash
     const grantAdj = grantCashIn[i] - grantIncome[i]; // non-cash adjustment: cash received minus income recognized
-    return netIncome[i] + depreciation[i] + wcTrade + wcTax + grantAdj;
+    return netIncome[i] + depreciation[i] + tfrAccrual[i] + wcTrade + wcTax + grantAdj;
   });
   const cfInvesting = YEARS.map((_, i) => -totalInvestments[i]);
   // CF Financing: NO grant here (grant cash is captured via operating adjustment)
@@ -272,6 +308,62 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const headcount = YEARS.map((_, i) => hrs.reduce((s, h) => s + (h.count[i] || 0), 0));
   const revPerEmp = YEARS.map((_, i) => headcount[i] ? totalRevenue[i] / headcount[i] : 0);
   const revenueCAGR = n > 1 && totalRevenue[0] > 0 ? Math.pow(totalRevenue[n - 1] / totalRevenue[0], 1 / (n - 1)) - 1 : 0;
+
+  /* ─── KPI AVANZATI (richiesti da banche e investitori) ─── */
+
+  // DSCR = EBITDA / (Interessi + Quota capitale) — la banca lo vuole > 1.2
+  const debtService = YEARS.map((_, i) => interest[i] + (assumptions.debtRepayment[i] || 0));
+  const dscr = YEARS.map((_, i) => debtService[i] > 0 ? ebitda[i] / debtService[i] : null);
+
+  // Interest Coverage Ratio = EBIT / Interessi — misura capacità di coprire gli oneri finanziari
+  const icr = YEARS.map((_, i) => interest[i] > 0 ? ebit[i] / interest[i] : null);
+
+  // PFN = Posizione Finanziaria Netta = Cassa - Debito finanziario (negativo = indebitamento netto)
+  const pfn = YEARS.map((_, i) => Math.max(0, cash[i]) - netDebt[i]);
+
+  // Debt/Equity ratio = Debito finanziario / Patrimonio netto
+  const debtEquity = YEARS.map((_, i) => equity[i] > 0 ? netDebt[i] / equity[i] : null);
+
+  // Break-Even Point (€) = Costi Fissi / Margine lordo %
+  const fixedCosts = YEARS.map((_, i) => hrCosts[i] + opexCosts[i] + depreciation[i] + interest[i]);
+  const bep = YEARS.map((_, i) => grossMarginPct[i] > 0 ? fixedCosts[i] / grossMarginPct[i] : null);
+  const bepMargin = YEARS.map((_, i) => bep[i] != null && totalRevenue[i] > 0 ? (totalRevenue[i] - bep[i]) / totalRevenue[i] : null);
+
+  // Cash Conversion Cycle = DSO + DIO - DPO
+  const ccc = assumptions.dso + assumptions.dio - assumptions.dpo;
+
+  // Burn rate e Runway (solo se CF operativo negativo)
+  const burnRate = YEARS.map((_, i) => cfOperating[i] < 0 ? Math.abs(cfOperating[i]) / 12 : 0);
+  const runway = YEARS.map((_, i) => burnRate[i] > 0 ? Math.max(0, cash[i]) / burnRate[i] : null);
+
+  // NWC (Net Working Capital) = Attivo corrente - Passivo corrente
+  const nwc = YEARS.map((_, i) => ar[i] + inventory[i] + Math.max(0, cash[i]) - currentLiabilities[i]);
+
+  // Costo del personale / Ricavi (incidenza)
+  const hrOnRevenue = YEARS.map((_, i) => totalRevenue[i] > 0 ? hrCosts[i] / totalRevenue[i] : 0);
+
+  // ROI = EBIT / Totale Attivo — rendimento del capitale investito
+  const roi = YEARS.map((_, i) => totalAssets[i] > 0 ? ebit[i] / totalAssets[i] : null);
+
+  // Payback Period: anno in cui cumCash diventa positivo
+  let paybackYear = null;
+  for (let i = 0; i < n; i++) {
+    if (cumCash[i] >= 0) {
+      paybackYear = i;
+      break;
+    }
+  }
+  const paybackPeriod = paybackYear;
+
+  // Art. 2447 CC: PN < 1/3 Capitale Sociale
+  const art2447 = YEARS.map((_, i) => equity[i] < (company.capitaleSociale || 0) / 3);
+
+  // YoY growth rates
+  const revenueGrowth = YEARS.map((_, i) => i > 0 && totalRevenue[i - 1] > 0 ? (totalRevenue[i] - totalRevenue[i - 1]) / totalRevenue[i - 1] : null);
+  const ebitdaGrowth = YEARS.map((_, i) => i > 0 && ebitda[i - 1] > 0 ? (ebitda[i] - ebitda[i - 1]) / ebitda[i - 1] : null);
+
+  // Cost-to-Income
+  const costToIncome = YEARS.map((_, i) => totalRevenue[i] > 0 ? (totalCOGS[i] + hrCosts[i] + opexCosts[i]) / totalRevenue[i] : null);
   return {
     revenueByLine,
     totalRevenue,
@@ -302,6 +394,9 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     currentLiabilities,
     deferredGrant,
     grantCashIn,
+    cumTFR,
+    tfrAccrual,
+    taxCreditUsed,
     cfOperating,
     cfInvesting,
     cfFinancing,
@@ -320,7 +415,26 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     debtRatio,
     headcount,
     revPerEmp,
-    revenueCAGR
+    revenueCAGR,
+    dscr,
+    icr,
+    pfn,
+    debtEquity,
+    bep,
+    bepMargin,
+    ccc,
+    burnRate,
+    runway,
+    nwc,
+    fixedCosts,
+    debtService,
+    hrOnRevenue,
+    roi,
+    paybackPeriod,
+    art2447,
+    revenueGrowth,
+    ebitdaGrowth,
+    costToIncome
   };
 }
 const sanitizeName = s => (s || "azienda").replace(/[^a-zA-Z0-9À-ú_\- ]/g, "").replace(/\s+/g, "_").substring(0, 50);
@@ -510,7 +624,10 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
   }, {
     label: "  − IRAP",
     values: f.irap.map(v => -v)
-  }, {
+  }, ...(f.taxCreditUsed.some(v => v > 0) ? [{
+    label: "  + Credito d'imposta",
+    values: f.taxCreditUsed
+  }] : []), {
     label: "UTILE NETTO",
     values: f.netIncome,
     bold: true,
@@ -556,6 +673,9 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     label: "Debito finanziario",
     values: f.netDebt
   }, {
+    label: "Fondo TFR",
+    values: f.cumTFR
+  }, {
     label: "Patrimonio netto",
     values: f.equity,
     bold: true
@@ -590,6 +710,9 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     label: "  + Ammortamenti",
     values: f.depreciation
   }, {
+    label: "  + TFR accantonato",
+    values: f.tfrAccrual
+  }, {
     label: "  ± Δ Capitale circolante",
     values: wcChange
   }, {
@@ -608,6 +731,18 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     values: f.cfInvesting,
     bold: true
   }, {
+    label: "  + Nuovi finanziamenti",
+    values: YEARS.map((_, i) => assumptions.debtAmount[i] || 0)
+  }, {
+    label: "  − Rimborso debito",
+    values: YEARS.map((_, i) => -(assumptions.debtRepayment[i] || 0))
+  }, {
+    label: "  + Apporto equity",
+    values: YEARS.map((_, i) => assumptions.equityInjection[i] || 0)
+  }, {
+    label: "  − Dividendi",
+    values: f.dividends.map(v => -v)
+  }, {
     label: "CF FINANZIAMENTO",
     values: f.cfFinancing,
     bold: true
@@ -622,7 +757,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     bold: true
   }]);
 
-  // KPI
+  // KPI Redditività
   addTitle("INDICATORI CHIAVE (KPI)");
   addTable("Redditività", [{
     label: "Margine lordo %",
@@ -641,18 +776,63 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     values: f.roe,
     pct: true
   }, {
+    label: "ROI (Return on Investment)",
+    values: f.roi,
+    pct: true
+  }, {
     label: "ROA",
     values: f.roa,
     pct: true
+  }, {
+    label: "Cost-to-Income",
+    values: f.costToIncome,
+    pct: true
+  }, {
+    label: "Incidenza personale/ricavi",
+    values: f.hrOnRevenue,
+    pct: true
+  }, {
+    label: "Crescita ricavi YoY",
+    values: f.revenueGrowth,
+    pct: true
   }]);
-  addTable("Solidità ed efficienza", [{
+  addTable("Sostenibilità finanziaria", [{
+    label: "DSCR (Debt Service Coverage)",
+    values: f.dscr,
+    dec: 2
+  }, {
+    label: "ICR (Interest Coverage)",
+    values: f.icr,
+    dec: 1
+  }, {
     label: "Current ratio",
     values: f.currentRatio,
+    dec: 2
+  }, {
+    label: "Debt/Equity",
+    values: f.debtEquity,
     dec: 2
   }, {
     label: "Rapporto indebitamento",
     values: f.debtRatio,
     pct: true
+  }]);
+  addTable("Break-Even e Struttura", [{
+    label: "Costi fissi totali",
+    values: f.fixedCosts
+  }, {
+    label: "Break-Even Point (€)",
+    values: f.bep
+  }, {
+    label: "Margine di sicurezza",
+    values: f.bepMargin,
+    pct: true
+  }, {
+    label: "PFN (Posizione Fin. Netta)",
+    values: f.pfn
+  }, {
+    label: "NWC (Cap. Circolante Netto)",
+    values: f.nwc
   }, {
     label: "Organico",
     values: f.headcount
@@ -821,6 +1001,18 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       label: "CF INVESTIMENTO",
       values: f.cfInvesting
     }, {
+      label: "(+) Nuovi finanziamenti",
+      values: YEARS.map((_, i) => assumptions.debtAmount[i] || 0)
+    }, {
+      label: "(−) Rimborso debito",
+      values: YEARS.map((_, i) => -(assumptions.debtRepayment[i] || 0))
+    }, {
+      label: "(+) Apporto equity",
+      values: YEARS.map((_, i) => assumptions.equityInjection[i] || 0)
+    }, {
+      label: "(−) Dividendi",
+      values: f.dividends.map(v => -v)
+    }, {
       label: "CF FINANZIAMENTO",
       values: f.cfFinancing
     }, {
@@ -855,16 +1047,48 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       label: "ROA",
       values: f.roa,
       pct: true
+    }, {
+      label: "Incidenza personale/ricavi",
+      values: f.hrOnRevenue,
+      pct: true
     }]
   }, {
-    title: "SOLIDITÀ",
+    title: "SOSTENIBILITÀ FINANZIARIA",
     rows: [{
+      label: "DSCR (Debt Service Coverage)",
+      values: f.dscr
+    }, {
+      label: "ICR (Interest Coverage)",
+      values: f.icr
+    }, {
       label: "Current ratio",
       values: f.currentRatio
+    }, {
+      label: "Debt/Equity",
+      values: f.debtEquity
     }, {
       label: "Rapporto indebitamento",
       values: f.debtRatio,
       pct: true
+    }]
+  }, {
+    title: "BREAK-EVEN E STRUTTURA",
+    rows: [{
+      label: "Costi fissi totali",
+      values: f.fixedCosts
+    }, {
+      label: "Break-Even Point (€)",
+      values: f.bep
+    }, {
+      label: "Margine di sicurezza",
+      values: f.bepMargin,
+      pct: true
+    }, {
+      label: "PFN (Posiz. Fin. Netta)",
+      values: f.pfn
+    }, {
+      label: "NWC (Cap. Circolante Netto)",
+      values: f.nwc
     }, {
       label: "Organico",
       values: f.headcount
@@ -1297,7 +1521,16 @@ function StepCompany({
       value: "optimistic",
       label: "🚀 Ottimistico (+15%)"
     }]
-  }))), /*#__PURE__*/React.createElement(Card, {
+  }), /*#__PURE__*/React.createElement(InputField, {
+    label: "Capitale Sociale",
+    value: c.capitaleSociale,
+    onChange: v => set({
+      ...c,
+      capitaleSociale: v
+    }),
+    suffix: "\u20AC",
+    tooltip: "Usato per verifica Art. 2447 CC. Il versamento effettivo va inserito come Apporto Equity nel passo Ipotesi."
+  })), /*#__PURE__*/React.createElement(Note, null, "Il ", /*#__PURE__*/React.createElement("strong", null, "Capitale Sociale"), " qui serve come riferimento legale per la verifica Art. 2447 c.c. (PN ", "<", " 1/3 CS = obbligo ricapitalizzazione). Il versamento effettivo in cassa va inserito come ", /*#__PURE__*/React.createElement("strong", null, "Apporto Equity Anno 1"), " nel passo Ipotesi Finanziarie. Per SRL ordinaria il minimo \xE8 \u20AC10.000, per SRLS \u20AC1.")), /*#__PURE__*/React.createElement(Card, {
     title: "Come funziona questo strumento"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1361,7 +1594,7 @@ function StepRevenue({
       gap: 20
     }
   }, /*#__PURE__*/React.createElement(Tip, {
-    text: "Definisci ogni linea di ricavo. Inserisci almeno il volume dell'Anno 1: gli anni successivi saranno calcolati automaticamente con il tasso di crescita indicato. Se preferisci, puoi compilare anche i volumi manualmente per ogni anno."
+    text: "Definisci ogni linea di ricavo separatamente (prodotti, servizi, abbonamenti). Margini lordi tipici: Servizi professionali 60-80%, Software/SaaS 70-90%, Commercio 20-40%, Manifattura 25-50%, Ristorazione 60-70%. Il tasso di crescita si applica ai volumi: 5-10% \xE8 conservativo, 15-30% \xE8 aggressivo (devi giustificarlo alla banca). Inserisci almeno il volume Anno 1: gli anni successivi vengono auto-calcolati."
   }), lines.map((l, i) => /*#__PURE__*/React.createElement(Card, {
     key: i,
     title: l.name || `Linea di Ricavo ${i + 1}`,
@@ -1462,7 +1695,11 @@ function StepRevenue({
   }, "+ Aggiungi Linea di Ricavo"));
 }
 function StepProduction({
-  revenues
+  revenues,
+  investments,
+  company: {
+    yearsCount: n
+  }
 }) {
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1471,9 +1708,9 @@ function StepProduction({
       gap: 20
     }
   }, /*#__PURE__*/React.createElement(Tip, {
-    text: "I costi di produzione (COGS) sono calcolati automaticamente: Ricavi \xD7 (1 \u2212 Margine Lordo). Modifica i margini nel passo Ricavi."
+    text: "Riepilogo automatico: COGS per linea di ricavo e piano ammortamenti degli investimenti. Per modificare i margini torna al passo Ricavi; per modificare gli investimenti vai al passo Investimenti."
   }), /*#__PURE__*/React.createElement(Card, {
-    title: "Riepilogo Costi di Produzione"
+    title: "Riepilogo Costi di Produzione (COGS)"
   }, revenues.length === 0 ? /*#__PURE__*/React.createElement("p", {
     style: {
       color: "#9ca3af"
@@ -1487,12 +1724,16 @@ function StepProduction({
   }, revenues.map((l, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
     style: {
-      display: "flex",
-      justifyContent: "space-between",
       padding: "12px 14px",
       background: "#f9fafb",
-      borderRadius: 10,
-      alignItems: "center"
+      borderRadius: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("strong", null, l.name || `Linea ${i + 1}`), /*#__PURE__*/React.createElement(Badge, {
     color: "#059669"
@@ -1511,7 +1752,167 @@ function StepProduction({
     style: {
       color: "#dc2626"
     }
-  }, Math.round((1 - l.grossMargin) * 100), "%"))))))));
+  }, Math.round((1 - l.grossMargin) * 100), "%")))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `120px repeat(${n},1fr)`,
+      gap: 4,
+      fontSize: 12,
+      fontFamily: "'JetBrains Mono',monospace"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#6b7280",
+      fontSize: 10,
+      fontWeight: 600
+    }
+  }, "ANNO"), YL.slice(0, n).map((y, j) => /*#__PURE__*/React.createElement("span", {
+    key: j,
+    style: {
+      color: "#6b7280",
+      fontSize: 10,
+      fontWeight: 600,
+      textAlign: "right"
+    }
+  }, y)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#4b5563"
+    }
+  }, "Volumi"), YEARS.slice(0, n).map((_, j) => {
+    let v = l.volumes[j];
+    if (!v && j > 0) {
+      let prev = l.volumes[0];
+      for (let k = 1; k <= j; k++) prev = Math.round(prev * (1 + (l.growthRates ? l.growthRates[k] : 0.05)));
+      v = prev;
+    }
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        textAlign: "right",
+        color: "#374151"
+      }
+    }, fmt(v));
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#4b5563"
+    }
+  }, "Ricavo"), YEARS.slice(0, n).map((_, j) => {
+    let v = l.volumes[j];
+    if (!v && j > 0) {
+      let prev = l.volumes[0];
+      for (let k = 1; k <= j; k++) prev = Math.round(prev * (1 + (l.growthRates ? l.growthRates[k] : 0.05)));
+      v = prev;
+    }
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        textAlign: "right",
+        color: "#059669"
+      }
+    }, fmt(v * l.unitPrice));
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#4b5563"
+    }
+  }, "COGS"), YEARS.slice(0, n).map((_, j) => {
+    let v = l.volumes[j];
+    if (!v && j > 0) {
+      let prev = l.volumes[0];
+      for (let k = 1; k <= j; k++) prev = Math.round(prev * (1 + (l.growthRates ? l.growthRates[k] : 0.05)));
+      v = prev;
+    }
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        textAlign: "right",
+        color: "#dc2626"
+      }
+    }, fmt(v * l.unitPrice * (1 - l.grossMargin)));
+  })))))), investments.some(inv => inv.cost > 0) && /*#__PURE__*/React.createElement(Card, {
+    title: "Piano Ammortamenti"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px 80px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "6px 0",
+      borderBottom: "2px solid #1e3a5f"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...css.label
+    }
+  }, "Bene"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...css.label,
+      textAlign: "right"
+    }
+  }, "Costo"), YL.slice(0, n).map((y, j) => /*#__PURE__*/React.createElement("span", {
+    key: j,
+    style: {
+      ...css.label,
+      textAlign: "right"
+    }
+  }, y))), investments.filter(inv => inv.cost > 0).map((inv, k) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px 80px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "5px 0",
+      borderBottom: "1px solid #f3f4f6"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "#374151"
+    }
+  }, inv.name || `Inv. ${k + 1}`, /*#__PURE__*/React.createElement(Badge, null, inv.type === "tangible" ? "Mat." : "Immat.")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      fontFamily: "'JetBrains Mono',monospace",
+      textAlign: "right",
+      color: "#374151"
+    }
+  }, fmt(inv.cost)), YEARS.slice(0, n).map((_, j) => {
+    const dep = j >= inv.year && inv.usefulLife > 0 && j - inv.year < inv.usefulLife ? inv.cost / inv.usefulLife : 0;
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        color: dep > 0 ? "#374151" : "#d1d5db"
+      }
+    }, dep > 0 ? fmt(Math.round(dep)) : "—");
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px 80px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "6px 0",
+      borderTop: "2px solid #1e3a5f",
+      fontWeight: 700
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12
+    }
+  }, "TOTALE AMMORTAMENTI"), /*#__PURE__*/React.createElement("span", null), YEARS.slice(0, n).map((_, j) => {
+    const tot = investments.reduce((s, inv) => j >= inv.year && inv.usefulLife > 0 && j - inv.year < inv.usefulLife ? s + inv.cost / inv.usefulLife : s, 0);
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right"
+      }
+    }, fmt(Math.round(tot)));
+  })))));
 }
 function StepHR({
   hrs,
@@ -1545,7 +1946,7 @@ function StepHR({
       gap: 20
     }
   }, /*#__PURE__*/React.createElement(Tip, {
-    text: "Costo annuo lordo = costo azienda totale (RAL + contributi + TFR). Il tasso di crescita si applica al costo."
+    text: "Costo annuo lordo = costo AZIENDA totale, NON la RAL del dipendente. Include: RAL + contributi INPS (~30%) + INAIL (~1%) + TFR (~7%) + eventuale welfare. Esempio: RAL \u20AC25.000 \u2192 costo azienda ~\u20AC35.000. Il tasso di crescita annuo si applica al costo (rinnovi CCNL, scatti anzianit\xE0). Tipo 'Diretto' = addetti alla produzione; 'Indiretto' = amministrativi, commerciali, management."
   }), hrs.map((h, i) => /*#__PURE__*/React.createElement(Card, {
     key: i,
     title: h.role || `Risorsa ${i + 1}`,
@@ -1651,7 +2052,7 @@ function StepOpEx({
       gap: 20
     }
   }, /*#__PURE__*/React.createElement(Tip, {
-    text: "Importo fisso: inserisci almeno il valore dell'Anno 1. Gli anni successivi lasciati a 0 saranno calcolati automaticamente con il tasso di crescita. Oppure compila tutti gli anni manualmente. % sui ricavi: calcolo automatico su tutti gli anni."
+    text: "Costi operativi tipici PMI: Affitto (\u20AC300-800/mq anno uffici), Utenze (\u20AC3.000-15.000/anno), Assicurazioni (0,5-2% ricavi), Marketing/commerciale (3-10% ricavi per B2B, 10-20% B2C), Consulenze (commercialista, legale, IT), Software e licenze, Manutenzioni. Metodo fisso: inserisci il valore Anno 1, gli anni successivi cresceranno automaticamente col tasso indicato. Metodo % ricavi: calcolo automatico proporzionale."
   }), items.map((o, i) => /*#__PURE__*/React.createElement(Card, {
     key: i,
     title: o.name || `Costo ${i + 1}`,
@@ -1785,7 +2186,7 @@ function StepInvestments({
       gap: 20
     }
   }, /*#__PURE__*/React.createElement(Tip, {
-    text: "L'ammortamento \xE8 calcolato a quote costanti: Costo \xF7 Vita utile. Inizia dall'anno di acquisto."
+    text: "L'ammortamento \xE8 a quote costanti (SLN): Costo \xF7 Vita utile. Vite utili tipiche Italia: Macchinari 7-10 anni, Attrezzature 4-5 anni, Mobili e arredi 8 anni, Autovetture 4 anni, Software/brevetti 3-5 anni, Impianti 10-12 anni, Fabbricati 33 anni. Per beni Industria 4.0: vita utile minore se previsto dal piano Transizione 5.0. Il tipo (Materiale/Immateriale) \xE8 rilevante per i bandi agevolativi."
   }), invs.map((inv, i) => /*#__PURE__*/React.createElement(Card, {
     key: i,
     title: inv.name || `Investimento ${i + 1}`,
@@ -1870,7 +2271,7 @@ function StepAssumptions({
       gap: 20
     }
   }, /*#__PURE__*/React.createElement(Tip, {
-    text: "Valori preimpostati sulla normativa fiscale italiana. DSO/DPO/DIO determinano il fabbisogno di capitale circolante."
+    text: "IRES 24% e IRAP ~5% sono le aliquote standard italiane. IVA 22% ordinaria (10% ridotta, 4% minima). DSO = giorni medi di incasso clienti (PMI Italia: 60-90 gg, PA: fino a 60 gg per legge). DPO = giorni medi pagamento fornitori (tipico: 30-90 gg). DIO = giorni di giacenza magazzino (0 per servizi, 30-60 per commercio, 60-120 per manifattura). Un CCC (DSO+DIO-DPO) alto assorbe cassa e aumenta il fabbisogno di capitale circolante."
   }), /*#__PURE__*/React.createElement(Card, {
     title: "Fiscalit\xE0"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1991,7 +2392,7 @@ function StepAssumptions({
     onChange: v => upd("dividendPayout", v / 100),
     suffix: "%"
   }))), /*#__PURE__*/React.createElement(Card, {
-    title: "Contributi e Agevolazioni"
+    title: "Contributi a Fondo Perduto"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
@@ -1999,11 +2400,11 @@ function StepAssumptions({
       gap: 16
     }
   }, /*#__PURE__*/React.createElement(InputField, {
-    label: "Contributo a fondo perduto",
+    label: "Importo contributo",
     value: a.grantAmount,
     onChange: v => upd("grantAmount", v),
     suffix: "\u20AC",
-    tooltip: "Es. bando PNRR, Transizione 5.0"
+    tooltip: "Es. bando PNRR, fondi regionali, Resto al Sud"
   }), /*#__PURE__*/React.createElement(InputField, {
     label: "Anni di competenza",
     value: a.grantYears,
@@ -2011,15 +2412,286 @@ function StepAssumptions({
     suffix: "anni",
     min: 1,
     step: 1
-  }))));
+  })), /*#__PURE__*/React.createElement(Note, null, "Il contributo a fondo perduto viene incassato nell'Anno 1 e riconosciuto a CE in quote costanti sugli anni di competenza. La parte non ancora riconosciuta appare come risconto passivo nello Stato Patrimoniale.")), /*#__PURE__*/React.createElement(Card, {
+    title: "Credito d'Imposta (Transizione 5.0 / R&D / Formazione)"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement(InputField, {
+    label: "Importo totale credito",
+    value: a.taxCreditAmount,
+    onChange: v => upd("taxCreditAmount", v),
+    suffix: "\u20AC",
+    tooltip: "Credito d'imposta maturato sugli investimenti eleggibili"
+  }), /*#__PURE__*/React.createElement(InputField, {
+    label: "Anni di fruizione",
+    value: a.taxCreditYears,
+    onChange: v => upd("taxCreditYears", v),
+    suffix: "anni",
+    min: 1,
+    step: 1,
+    tooltip: "Tipico: 3 anni per Transizione 5.0, 3-5 per R&S"
+  })), /*#__PURE__*/React.createElement(Note, null, "Il credito d'imposta NON \xE8 un contributo: non va a ricavo ma ", /*#__PURE__*/React.createElement("strong", null, "riduce le imposte"), " (IRES/IRAP). Se le imposte dell'anno sono inferiori al credito disponibile, la differenza non genera rimborso ma si perde. Transizione 5.0: 35-45% su beni strumentali 4.0; R&S: 10-20% su spese ammissibili; Formazione 4.0: 30-60% su costi formativi.")), /*#__PURE__*/React.createElement(Card, {
+    title: "TFR \u2014 Trattamento di Fine Rapporto"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement(InputField, {
+    label: "Aliquota TFR",
+    value: (a.tfrRate * 100).toFixed(2),
+    onChange: v => upd("tfrRate", v / 100),
+    suffix: "%",
+    tooltip: "Standard 7,41% della retribuzione annua lorda"
+  })), /*#__PURE__*/React.createElement(Note, null, "Il TFR \xE8 gi\xE0 incluso nel \"costo azienda lordo\" che inserisci nel passo Personale. Qui lo evidenziamo perch\xE9 si accumula come ", /*#__PURE__*/React.createElement("strong", null, "passivit\xE0"), " in bilancio (il dipendente lo incassa solo alla cessazione del rapporto). Per aziende ", ">", " 50 dipendenti il TFR va versato all'INPS o a fondi pensione \u2014 in quel caso il costo \xE8 monetario e puoi impostare l'aliquota a 0%.")), /*#__PURE__*/React.createElement(Card, {
+    title: "Tipo Ammortamento Debito"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement(SelectField, {
+    label: "Metodo",
+    value: a.debtType,
+    onChange: v => upd("debtType", v),
+    options: [{
+      value: "manual",
+      label: "Manuale (inserisci rimborsi)"
+    }, {
+      value: "francese",
+      label: "Alla francese (rata costante)"
+    }]
+  }), a.debtType === "francese" && /*#__PURE__*/React.createElement(InputField, {
+    label: "Durata finanziamento",
+    value: a.debtDuration,
+    onChange: v => upd("debtDuration", v),
+    suffix: "anni",
+    min: 1,
+    step: 1
+  })), /*#__PURE__*/React.createElement(Note, null, "Ammortamento ", /*#__PURE__*/React.createElement("strong", null, "alla francese"), ": rata costante (quota capitale crescente + quota interessi decrescente). \xC8 il metodo pi\xF9 usato dalle banche italiane per mutui e finanziamenti. Se scegli \"Manuale\", inserisci tu i rimborsi anno per anno sopra.")));
+}
+function Gauge({
+  label,
+  value,
+  format,
+  thresholds,
+  note,
+  invert
+}) {
+  // thresholds: {green:x, yellow:y} — green if value>=green, yellow if >=yellow, red otherwise (invert reverses)
+  let color = "#6b7280",
+    bg = "#f3f4f6",
+    icon = "⚪";
+  if (value != null && !isNaN(value) && thresholds) {
+    const {
+      green,
+      yellow
+    } = thresholds;
+    if (invert) {
+      if (value <= green) {
+        color = "#059669";
+        bg = "#ecfdf5";
+        icon = "🟢";
+      } else if (value <= yellow) {
+        color = "#d97706";
+        bg = "#fffbeb";
+        icon = "🟡";
+      } else {
+        color = "#dc2626";
+        bg = "#fef2f2";
+        icon = "🔴";
+      }
+    } else {
+      if (value >= green) {
+        color = "#059669";
+        bg = "#ecfdf5";
+        icon = "🟢";
+      } else if (value >= yellow) {
+        color = "#d97706";
+        bg = "#fffbeb";
+        icon = "🟡";
+      } else {
+        color = "#dc2626";
+        bg = "#fef2f2";
+        icon = "🔴";
+      }
+    }
+  }
+  const display = value == null || isNaN(value) ? "N/A" : format === "pct" ? fmtPct(value) : format === "dec2" ? fmt(value, 2) : format === "dec1" ? fmt(value, 1) : format === "eur" ? fmtEur(value) : format === "months" ? Math.round(value) + " mesi" : format === "days" ? value + " gg" : fmt(value);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "14px 16px",
+      background: bg,
+      borderRadius: 12,
+      borderLeft: `4px solid ${color}`,
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 600,
+      color: "#6b7280",
+      textTransform: "uppercase",
+      letterSpacing: ".03em"
+    }
+  }, label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11
+    }
+  }, icon)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 22,
+      fontFamily: "'JetBrains Mono',monospace",
+      fontWeight: 700,
+      color
+    }
+  }, display), note && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "#6b7280",
+      lineHeight: 1.4,
+      fontStyle: "italic"
+    }
+  }, note));
+}
+function HealthCheck({
+  financials: f,
+  n
+}) {
+  const warnings = [];
+  const tips = [];
+  const last = n - 1;
+
+  // DSCR
+  f.dscr.slice(0, n).forEach((v, i) => {
+    if (v != null && v < 1) warnings.push(`Anno ${i + 1}: DSCR = ${fmt(v, 2)} — l'azienda non genera abbastanza cassa per servire il debito. La banca considererà il prestito a rischio.`);
+  });
+  f.dscr.slice(0, n).forEach((v, i) => {
+    if (v != null && v >= 1 && v < 1.2) tips.push(`Anno ${i + 1}: DSCR = ${fmt(v, 2)} — sufficiente ma sotto la soglia 1,2× preferita dalle banche. Valuta di ridurre il debito o migliorare l'EBITDA.`);
+  });
+
+  // Margini
+  if (f.grossMarginPct[last] < 0.25 && f.totalRevenue[last] > 0) warnings.push(`Margine lordo ${fmtPct(f.grossMarginPct[last])} basso. Sotto il 25% la PMI ha poco spazio per coprire i costi fissi. Rivedi pricing o costi di produzione.`);
+  if (f.ebitdaMargin[last] < 0 && f.totalRevenue[last] > 0) warnings.push(`EBITDA negativo all'anno ${n}: l'attività operativa non è sostenibile. I costi fissi superano il margine lordo.`);
+
+  // Equity negativo
+  if (f.equity[last] < 0) warnings.push(`Patrimonio netto negativo (€ ${fmt(f.equity[last])}): causa di scioglimento ex art. 2484 c.c. Serve ricapitalizzazione o aumento dell'equity.`);
+
+  // Art. 2447 CC: PN < 1/3 capitale sociale
+  f.art2447.slice(0, n).forEach((v, i) => {
+    if (v && f.equity[i] >= 0) warnings.push(`Anno ${i + 1}: Patrimonio netto (€ ${fmt(f.equity[i])}) inferiore a 1/3 del Capitale Sociale — obbligo di ricapitalizzazione ex art. 2447 c.c. L'assemblea deve deliberare riduzione CS o ricapitalizzazione.`);
+  });
+
+  // Payback
+  if (f.paybackPeriod != null) tips.push(`Payback raggiunto nell'Anno ${f.paybackPeriod + 1}: l'investimento iniziale viene recuperato dalla cassa cumulata. ${f.paybackPeriod <= 1 ? "Ottimo, recupero veloce." : f.paybackPeriod <= 2 ? "Buon tempo di recupero." : "Tempo di recupero medio-lungo, accettabile per investimenti strutturali."}`);
+  if (f.paybackPeriod == null && f.cumCash[last] < 0) warnings.push(`Payback NON raggiunto entro l'orizzonte del piano: la cassa cumulata resta negativa. L'investimento non si ripaga nei tempi previsti.`);
+
+  // Tax credit
+  if (f.taxCreditUsed.slice(0, n).some(v => v > 0)) tips.push(`Credito d'imposta utilizzato: € ${fmt(f.taxCreditUsed.slice(0, n).reduce((s, v) => s + v, 0))} in ${n} anni. Risparmio fiscale effettivo.`);
+
+  // Cash
+  if (f.fundingGap.slice(0, n).some(v => v > 0)) warnings.push(`Gap di cassa rilevato: il piano non è finanziariamente sostenibile senza copertura aggiuntiva (equity, finanziamento, o taglio costi).`);
+
+  // BEP
+  f.bepMargin.slice(0, n).forEach((v, i) => {
+    if (v != null && v < 0) warnings.push(`Anno ${i + 1}: i ricavi (€ ${fmt(f.totalRevenue[i])}) sono sotto il break-even (€ ${fmt(f.bep[i])}). L'azienda opera in perdita strutturale.`);
+  });
+
+  // HR incidence
+  if (f.hrOnRevenue[last] > 0.6 && f.totalRevenue[last] > 0) tips.push(`Incidenza personale/ricavi ${fmtPct(f.hrOnRevenue[last])} elevata (>60%). Tipica di startup, ma attenzione alla scalabilità.`);
+
+  // Burn rate
+  f.runway.slice(0, n).forEach((v, i) => {
+    if (v != null && v < 6) warnings.push(`Anno ${i + 1}: con il burn rate attuale la cassa si esaurisce in ${Math.round(v)} mesi. Runway critico (<6 mesi).`);
+  });
+  f.runway.slice(0, n).forEach((v, i) => {
+    if (v != null && v >= 6 && v < 12) tips.push(`Anno ${i + 1}: runway di ${Math.round(v)} mesi. Sufficiente ma prevedi un piano B di finanziamento.`);
+  });
+
+  // Interest coverage
+  f.icr.slice(0, n).forEach((v, i) => {
+    if (v != null && v < 1.5) warnings.push(`Anno ${i + 1}: Interest Coverage Ratio = ${fmt(v, 1)}× — la banca vuole almeno 1,5×. L'EBIT copre a malapena gli interessi.`);
+  });
+
+  // D/E
+  f.debtEquity.slice(0, n).forEach((v, i) => {
+    if (v != null && v > 3) tips.push(`Anno ${i + 1}: Debt/Equity = ${fmt(v, 1)}× — leva elevata (>3×). I finanziatori potrebbero richiedere garanzie aggiuntive.`);
+  });
+
+  // Positive
+  if (warnings.length === 0 && tips.length === 0) tips.push(`Il piano appare equilibrato. Tutti gli indicatori chiave sono entro soglie accettabili.`);
+  if (warnings.length === 0 && tips.length === 0) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, warnings.map((w, i) => /*#__PURE__*/React.createElement("div", {
+    key: "w" + i,
+    style: {
+      padding: "10px 14px",
+      background: "#fef2f2",
+      border: "1px solid #fca5a5",
+      borderRadius: 10,
+      fontSize: 12,
+      color: "#991b1b",
+      lineHeight: 1.5
+    }
+  }, "\uD83D\uDD34 ", w)), tips.map((t, i) => /*#__PURE__*/React.createElement("div", {
+    key: "t" + i,
+    style: {
+      padding: "10px 14px",
+      background: "#fffbeb",
+      border: "1px solid #fde68a",
+      borderRadius: 10,
+      fontSize: 12,
+      color: "#92400e",
+      lineHeight: 1.5
+    }
+  }, "\uD83D\uDCA1 ", t)));
+}
+function Note({
+  children
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 14px",
+      background: "#f0f9ff",
+      border: "1px solid #bae6fd",
+      borderRadius: 10,
+      fontSize: 11,
+      color: "#0369a1",
+      lineHeight: 1.5,
+      marginTop: 8
+    }
+  }, "\uD83D\uDCD8 ", /*#__PURE__*/React.createElement("strong", null, "Nota:"), " ", children);
 }
 function StepResults({
   financials: f,
-  company
+  company,
+  assumptions
 }) {
   const n = company.yearsCount;
-  const [tab, setTab] = useState("is");
+  const [tab, setTab] = useState("dashboard");
   const tabs = [{
+    id: "dashboard",
+    label: "📊 Dashboard"
+  }, {
     id: "is",
     label: "Conto Economico"
   }, {
@@ -2030,7 +2702,7 @@ function StepResults({
     label: "Cash Flow"
   }, {
     id: "kpi",
-    label: "KPI"
+    label: "KPI Avanzati"
   }];
   const Div = () => /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2040,48 +2712,287 @@ function StepResults({
     }
   });
   const hasFundingGap = f.fundingGap.slice(0, n).some(v => v > 0);
+  const last = n - 1;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
       gap: 20
     }
-  }, hasFundingGap && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "14px 20px",
-      background: "#fef2f2",
-      border: "1px solid #fca5a5",
-      borderRadius: 12,
-      fontSize: 13,
-      color: "#991b1b",
-      fontWeight: 600
-    }
-  }, "\u26A0\uFE0F ATTENZIONE: Il piano evidenzia un fabbisogno finanziario non coperto. Valuta maggiori apporti di equity, finanziamenti o riduzione costi."), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 4,
       background: "#f3f4f6",
       padding: 4,
-      borderRadius: 12
+      borderRadius: 12,
+      flexWrap: "wrap"
     }
   }, tabs.map(t => /*#__PURE__*/React.createElement("button", {
     key: t.id,
     onClick: () => setTab(t.id),
     style: {
       flex: 1,
-      padding: "10px 16px",
+      padding: "10px 12px",
       border: "none",
       borderRadius: 8,
       background: tab === t.id ? "#fff" : "transparent",
+      minWidth: 120,
       color: tab === t.id ? "#111827" : "#6b7280",
       fontFamily: "'DM Sans',sans-serif",
       fontWeight: 600,
-      fontSize: 13,
+      fontSize: 12,
       cursor: "pointer",
       boxShadow: tab === t.id ? "0 1px 3px rgba(0,0,0,.08)" : "none",
       transition: "all .2s"
     }
-  }, t.label))), tab === "is" && /*#__PURE__*/React.createElement(Card, {
+  }, t.label))), tab === "dashboard" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement(Card, {
+    title: "\uD83C\uDFE5 Health Check \u2014 Diagnosi del Piano",
+    accent: true
+  }, /*#__PURE__*/React.createElement(HealthCheck, {
+    financials: f,
+    n: n
+  })), /*#__PURE__*/React.createElement(Card, {
+    title: "Cruscotto Finanziario \u2014 Ultimo Anno"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr 1fr",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(Gauge, {
+    label: "DSCR",
+    value: f.dscr[last],
+    format: "dec2",
+    thresholds: {
+      green: 1.3,
+      yellow: 1
+    },
+    note: "Debt Service Coverage. La banca vuole \u2265 1,2\xD7"
+  }), /*#__PURE__*/React.createElement(Gauge, {
+    label: "Margine EBITDA",
+    value: f.ebitdaMargin[last],
+    format: "pct",
+    thresholds: {
+      green: 0.15,
+      yellow: 0.05
+    },
+    note: "Sostenibilit\xE0 operativa. Ideale >15%"
+  }), /*#__PURE__*/React.createElement(Gauge, {
+    label: "Margine netto",
+    value: f.netMargin[last],
+    format: "pct",
+    thresholds: {
+      green: 0.05,
+      yellow: 0
+    },
+    note: "Redditivit\xE0 finale. Positivo = crea valore"
+  }), /*#__PURE__*/React.createElement(Gauge, {
+    label: "Current Ratio",
+    value: f.currentRatio[last],
+    format: "dec2",
+    thresholds: {
+      green: 1.5,
+      yellow: 1
+    },
+    note: "Liquidit\xE0 a breve. <1 = rischio insolvenza"
+  }), /*#__PURE__*/React.createElement(Gauge, {
+    label: "Debt/Equity",
+    value: f.debtEquity[last],
+    format: "dec2",
+    thresholds: {
+      green: 1,
+      yellow: 2
+    },
+    invert: true,
+    note: "Leva finanziaria. <1\xD7 = conservativo"
+  }), /*#__PURE__*/React.createElement(Gauge, {
+    label: "ROE",
+    value: f.roe[last],
+    format: "pct",
+    thresholds: {
+      green: 0.08,
+      yellow: 0
+    },
+    note: "Rendimento del capitale proprio"
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement(Card, {
+    title: "Break-Even Analysis"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(Gauge, {
+    label: `BEP Anno ${n}`,
+    value: f.bep[last],
+    format: "eur",
+    thresholds: null,
+    note: "Fatturato minimo per coprire tutti i costi fissi"
+  }), /*#__PURE__*/React.createElement(Gauge, {
+    label: "Margine di sicurezza",
+    value: f.bepMargin[last],
+    format: "pct",
+    thresholds: {
+      green: 0.2,
+      yellow: 0.05
+    },
+    note: "Quanto i ricavi superano il BEP. >20% = buono"
+  })), /*#__PURE__*/React.createElement(Note, null, "Il Break-Even Point (BEP) indica il fatturato necessario per raggiungere l'utile zero. Si calcola come: Costi Fissi \xF7 Margine Lordo %. Un margine di sicurezza ", ">", " 20% significa che i ricavi possono calare del 20% prima di andare in perdita.")), /*#__PURE__*/React.createElement(Card, {
+    title: "Posizione Finanziaria e Liquidit\xE0"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(Gauge, {
+    label: `PFN Anno ${n}`,
+    value: f.pfn[last],
+    format: "eur",
+    thresholds: {
+      green: 0,
+      yellow: -50000
+    },
+    note: "Posiz. Fin. Netta. Negativa = indebitamento netto"
+  }), /*#__PURE__*/React.createElement(Gauge, {
+    label: "Ciclo di Cassa",
+    value: f.ccc,
+    format: "days",
+    thresholds: {
+      green: 30,
+      yellow: 60
+    },
+    invert: true,
+    note: `DSO(${company.yearsCount > 0 ? Math.round(f.ccc + 60 - 30) + "" : ""}) + DIO - DPO`
+  })), /*#__PURE__*/React.createElement(Note, null, "La PFN (Posizione Finanziaria Netta) \xE8 la differenza tra liquidit\xE0 e debiti finanziari. \xC8 il primo indicatore che la banca guarda. Se negativa, l'azienda \xE8 esposta; se positiva, ha riserve. Il Ciclo di Cassa (CCC) indica quanti giorni passano tra il pagamento dei fornitori e l'incasso dai clienti."))), f.burnRate.slice(0, n).some(v => v > 0) && /*#__PURE__*/React.createElement(Card, {
+    title: "\uD83D\uDD25 Burn Rate e Runway"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `repeat(${n},1fr)`,
+      gap: 12
+    }
+  }, YEARS.slice(0, n).map((_, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      textAlign: "center"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      fontWeight: 600,
+      color: "#6b7280",
+      textTransform: "uppercase",
+      marginBottom: 4
+    }
+  }, YL[i]), f.burnRate[i] > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 18,
+      fontFamily: "'JetBrains Mono',monospace",
+      fontWeight: 700,
+      color: "#dc2626"
+    }
+  }, fmtEur(f.burnRate[i]), "/mese"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: f.runway[i] < 6 ? "#dc2626" : f.runway[i] < 12 ? "#d97706" : "#059669",
+      fontWeight: 600,
+      marginTop: 4
+    }
+  }, f.runway[i] != null ? Math.round(f.runway[i]) + " mesi di runway" : "—")) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      color: "#059669",
+      fontWeight: 600
+    }
+  }, "CF Operativo positivo \u2713")))), /*#__PURE__*/React.createElement(Note, null, "Il burn rate indica quanta cassa viene consumata mensilmente quando il CF operativo \xE8 negativo. Il runway \xE8 il numero di mesi prima che la cassa si esaurisca. Sotto 6 mesi \xE8 critico: serve un'azione immediata (taglio costi, finanziamento, o accelerazione ricavi).")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr 1fr 1fr",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement(Card, {
+    title: "CAGR Ricavi"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 24,
+      fontFamily: "'JetBrains Mono',monospace",
+      fontWeight: 700,
+      color: f.revenueCAGR >= 0 ? "#059669" : "#dc2626",
+      padding: 4
+    }
+  }, fmtPct(f.revenueCAGR))), /*#__PURE__*/React.createElement(Card, {
+    title: `Utile Netto Y${n}`
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 24,
+      fontFamily: "'JetBrains Mono',monospace",
+      fontWeight: 700,
+      color: f.netIncome[last] >= 0 ? "#059669" : "#dc2626",
+      padding: 4
+    }
+  }, fmtEur(f.netIncome[last]))), /*#__PURE__*/React.createElement(Card, {
+    title: `Cassa Y${n}`
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 24,
+      fontFamily: "'JetBrains Mono',monospace",
+      fontWeight: 700,
+      color: f.cash[last] >= 0 ? "#059669" : "#dc2626",
+      padding: 4
+    }
+  }, fmtEur(Math.max(0, f.cash[last])))), /*#__PURE__*/React.createElement(Card, {
+    title: "Payback Period"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 24,
+      fontFamily: "'JetBrains Mono',monospace",
+      fontWeight: 700,
+      color: f.paybackPeriod != null ? "#059669" : "#dc2626",
+      padding: 4
+    }
+  }, f.paybackPeriod != null ? `Anno ${f.paybackPeriod + 1}` : "Non raggiunto"))), /*#__PURE__*/React.createElement(Card, {
+    title: "\uD83D\uDCDD Executive Summary"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "#374151",
+      lineHeight: 1.8
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      marginBottom: 10
+    }
+  }, "Il piano prevede ", /*#__PURE__*/React.createElement("strong", null, "ricavi di \u20AC ", fmt(f.totalRevenue[last])), " all'Anno ", n, f.revenueCAGR > 0 ? `, con un CAGR del ${fmtPct(f.revenueCAGR)}` : "", ".", f.ebitdaMargin[last] >= 0.1 ? ` L'EBITDA margin del ${fmtPct(f.ebitdaMargin[last])} indica una buona efficienza operativa.` : f.ebitdaMargin[last] >= 0 ? ` L'EBITDA margin del ${fmtPct(f.ebitdaMargin[last])} è contenuto ma positivo.` : ` L'EBITDA è negativo: il business non copre i costi operativi.`), /*#__PURE__*/React.createElement("p", {
+    style: {
+      marginBottom: 10
+    }
+  }, f.netIncome[last] >= 0 ? `L'utile netto di € ${fmt(f.netIncome[last])} ` : `La perdita netta di € ${fmt(Math.abs(f.netIncome[last]))} `, f.netMargin[last] >= 0.05 ? "rappresenta un margine netto sano. " : f.netMargin[last] >= 0 ? "è positivo ma marginale. " : "richiede interventi strutturali. ", f.equity[last] > 0 ? `Il patrimonio netto di € ${fmt(f.equity[last])} garantisce solidità patrimoniale.` : `Il patrimonio netto negativo (€ ${fmt(f.equity[last])}) richiede ricapitalizzazione urgente.`), /*#__PURE__*/React.createElement("p", {
+    style: {
+      marginBottom: 10
+    }
+  }, f.dscr[last] != null ? `Il DSCR di ${fmt(f.dscr[last], 2)}× ${f.dscr[last] >= 1.2 ? "supera la soglia bancaria di 1,2×, rendendo il piano finanziabile." : "è sotto la soglia bancaria di 1,2×, rendendo problematico l'accesso al credito."} ` : "", f.pfn[last] >= 0 ? `La Posizione Finanziaria Netta positiva (€ ${fmt(f.pfn[last])}) indica autosufficienza finanziaria.` : `La PFN negativa (€ ${fmt(f.pfn[last])}) evidenzia dipendenza dal credito bancario.`), f.paybackPeriod != null && /*#__PURE__*/React.createElement("p", {
+    style: {
+      marginBottom: 10
+    }
+  }, "L'investimento si ripaga nell'", /*#__PURE__*/React.createElement("strong", null, "Anno ", f.paybackPeriod + 1), ", ", f.paybackPeriod <= 1 ? "un tempo eccellente che rassicura gli investitori." : "un orizzonte coerente con la tipologia di investimento."), f.taxCreditUsed.some(v => v > 0) && /*#__PURE__*/React.createElement("p", {
+    style: {
+      marginBottom: 10
+    }
+  }, "Il credito d'imposta porta un risparmio fiscale complessivo di ", /*#__PURE__*/React.createElement("strong", null, "\u20AC ", fmt(f.taxCreditUsed.slice(0, n).reduce((s, v) => s + v, 0))), ", migliorando la redditivit\xE0 netta."), f.bepMargin[last] != null && f.bepMargin[last] > 0 && /*#__PURE__*/React.createElement("p", null, "Il margine di sicurezza del ", fmtPct(f.bepMargin[last]), " rispetto al break-even conferma la resilienza del modello a shock di domanda.")))), tab === "is" && /*#__PURE__*/React.createElement(Card, {
     title: "Conto Economico Previsionale",
     accent: true
   }, /*#__PURE__*/React.createElement(YearHeader, {
@@ -2156,6 +3067,10 @@ function StepResults({
     label: "  \u2212 IRAP",
     values: f.irap.map(v => -v),
     n: n
+  }), f.taxCreditUsed.some(v => v > 0) && /*#__PURE__*/React.createElement(YearRow, {
+    label: "  + Credito d'imposta",
+    values: f.taxCreditUsed,
+    n: n
   }), /*#__PURE__*/React.createElement(Div, null), /*#__PURE__*/React.createElement(YearRow, {
     label: "UTILE NETTO",
     values: f.netIncome,
@@ -2167,7 +3082,7 @@ function StepResults({
     values: f.netMargin,
     n: n,
     pct: true
-  })), tab === "bs" && /*#__PURE__*/React.createElement(Card, {
+  }), /*#__PURE__*/React.createElement(Note, null, "Il Conto Economico mostra se l'attivit\xE0 \xE8 redditizia. L'EBITDA misura la capacit\xE0 di generare cassa dalla gestione operativa. Se l'EBITDA \xE8 negativo, il modello di business ha un problema strutturale indipendentemente dal finanziamento.")), tab === "bs" && /*#__PURE__*/React.createElement(Card, {
     title: "Stato Patrimoniale Previsionale",
     accent: true
   }, /*#__PURE__*/React.createElement(YearHeader, {
@@ -2236,6 +3151,10 @@ function StepResults({
     label: "Debito finanziario",
     values: f.netDebt,
     n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "Fondo TFR",
+    values: f.cumTFR,
+    n: n
   }), /*#__PURE__*/React.createElement(Div, null), /*#__PURE__*/React.createElement(YearRow, {
     label: "Patrimonio netto",
     values: f.equity,
@@ -2252,7 +3171,7 @@ function StepResults({
     values: f.fundingGap,
     n: n,
     bold: true
-  }))), tab === "cf" && /*#__PURE__*/React.createElement(Card, {
+  })), /*#__PURE__*/React.createElement(Note, null, "Lo Stato Patrimoniale fotografa la struttura finanziaria dell'azienda. La banca controlla: (1) che il PN sia positivo, (2) che il rapporto Debito/Equity sia ", "<", " 3\xD7, (3) che il current ratio sia ", ">", " 1. Un PN negativo \xE8 causa legale di scioglimento.")), tab === "cf" && /*#__PURE__*/React.createElement(Card, {
     title: "Rendiconto Finanziario",
     accent: true
   }, /*#__PURE__*/React.createElement(YearHeader, {
@@ -2272,6 +3191,10 @@ function StepResults({
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "  + Ammortamenti",
     values: f.depreciation,
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "  + TFR accantonato (non-cash)",
+    values: f.tfrAccrual,
     n: n
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "  \xB1 \u0394 Capitale circolante",
@@ -2320,6 +3243,22 @@ function StepResults({
       textTransform: "uppercase"
     }
   }, "Attivit\xE0 di finanziamento"), /*#__PURE__*/React.createElement(YearRow, {
+    label: "  + Nuovi finanziamenti",
+    values: YEARS.map((_, i) => assumptions.debtAmount[i] || 0),
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "  \u2212 Rimborso debito",
+    values: YEARS.map((_, i) => -(assumptions.debtRepayment[i] || 0)),
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "  + Apporto equity",
+    values: YEARS.map((_, i) => assumptions.equityInjection[i] || 0),
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "  \u2212 Dividendi",
+    values: f.dividends.map(v => -v),
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
     label: "CF FINANZIAMENTO",
     values: f.cfFinancing,
     n: n,
@@ -2335,14 +3274,14 @@ function StepResults({
     values: f.cumCash,
     n: n,
     bold: true
-  })), tab === "kpi" && /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement(Note, null, "Il Cash Flow mostra se l'azienda genera o brucia cassa. Un CF Operativo negativo per pi\xF9 anni indica che il business non si auto-sostiene. Il CF Finanziamento (debiti + equity) copre il fabbisogno iniziale, ma alla banca interessa che il CF Operativo diventi positivo.")), tab === "kpi" && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
       gap: 16
     }
   }, /*#__PURE__*/React.createElement(Card, {
-    title: "Indicatori di Redditivit\xE0",
+    title: "Indici di Redditivit\xE0",
     accent: true
   }, /*#__PURE__*/React.createElement(YearHeader, {
     n: n
@@ -2362,22 +3301,62 @@ function StepResults({
     n: n,
     pct: true
   }), /*#__PURE__*/React.createElement(YearRow, {
-    label: "ROE",
+    label: "ROE (Return on Equity)",
     values: f.roe,
     n: n,
     pct: true
   }), /*#__PURE__*/React.createElement(YearRow, {
-    label: "ROA",
+    label: "ROI (Return on Investment)",
+    values: f.roi,
+    n: n,
+    pct: true
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "ROA (Return on Assets)",
     values: f.roa,
     n: n,
     pct: true
-  })), /*#__PURE__*/React.createElement(Card, {
-    title: "Solidit\xE0 e Efficienza"
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "Cost-to-Income",
+    values: f.costToIncome,
+    n: n,
+    pct: true
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "Incidenza personale/ricavi",
+    values: f.hrOnRevenue,
+    n: n,
+    pct: true
+  }), /*#__PURE__*/React.createElement(Div, null), /*#__PURE__*/React.createElement(YearRow, {
+    label: "Crescita ricavi YoY",
+    values: f.revenueGrowth,
+    n: n,
+    pct: true
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "Crescita EBITDA YoY",
+    values: f.ebitdaGrowth,
+    n: n,
+    pct: true
+  }), /*#__PURE__*/React.createElement(Note, null, "Il margine lordo dipende dal pricing e dai costi diretti. L'EBITDA margin mostra l'efficienza operativa complessiva. ROE ", ">", " 8% \xE8 buono per una PMI; se il ROE \xE8 N/A, il patrimonio netto \xE8 negativo o in perdita.")), /*#__PURE__*/React.createElement(Card, {
+    title: "Indici di Sostenibilit\xE0 Finanziaria (richiesti dalle banche)"
   }, /*#__PURE__*/React.createElement(YearHeader, {
     n: n
   }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "DSCR",
+    values: f.dscr,
+    n: n,
+    dec: 2
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "ICR (Interest Coverage)",
+    values: f.icr,
+    n: n,
+    dec: 1
+  }), /*#__PURE__*/React.createElement(YearRow, {
     label: "Current ratio",
     values: f.currentRatio,
+    n: n,
+    dec: 2
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "Debt/Equity",
+    values: f.debtEquity,
     n: n,
     dec: 2
   }), /*#__PURE__*/React.createElement(YearRow, {
@@ -2385,6 +3364,31 @@ function StepResults({
     values: f.debtRatio,
     n: n,
     pct: true
+  }), /*#__PURE__*/React.createElement(Note, null, "Il ", /*#__PURE__*/React.createElement("strong", null, "DSCR"), " (Debt Service Coverage Ratio) \xE8 il rapporto tra EBITDA e servizio del debito (interessi + quote capitale). Le banche italiane richiedono DSCR \u2265 1,2\xD7 per erogare credito. L'", /*#__PURE__*/React.createElement("strong", null, "ICR"), " misura quante volte l'EBIT copre gli interessi. Il ", /*#__PURE__*/React.createElement("strong", null, "Debt/Equity"), " mostra la leva: sopra 3\xD7 i finanziatori richiedono garanzie personali o reali.")), /*#__PURE__*/React.createElement(Card, {
+    title: "Analisi Break-Even e Capitale Circolante"
+  }, /*#__PURE__*/React.createElement(YearHeader, {
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "Costi fissi totali",
+    values: f.fixedCosts,
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "Break-Even Point (\u20AC)",
+    values: f.bep,
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "Margine di sicurezza",
+    values: f.bepMargin,
+    n: n,
+    pct: true
+  }), /*#__PURE__*/React.createElement(Div, null), /*#__PURE__*/React.createElement(YearRow, {
+    label: "PFN",
+    values: f.pfn,
+    n: n
+  }), /*#__PURE__*/React.createElement(YearRow, {
+    label: "NWC (Cap. Circolante Netto)",
+    values: f.nwc,
+    n: n
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "Organico",
     values: f.headcount,
@@ -2393,33 +3397,7 @@ function StepResults({
     label: "Ricavo per dipendente",
     values: f.revPerEmp,
     n: n
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 16
-    }
-  }, /*#__PURE__*/React.createElement(Card, {
-    title: "CAGR Ricavi"
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 28,
-      fontFamily: "'JetBrains Mono',monospace",
-      fontWeight: 700,
-      color: f.revenueCAGR >= 0 ? "#059669" : "#dc2626",
-      padding: 8
-    }
-  }, fmtPct(f.revenueCAGR))), /*#__PURE__*/React.createElement(Card, {
-    title: "Utile Netto ultimo anno"
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 28,
-      fontFamily: "'JetBrains Mono',monospace",
-      fontWeight: 700,
-      color: f.netIncome[n - 1] >= 0 ? "#059669" : "#dc2626",
-      padding: 8
-    }
-  }, fmtEur(f.netIncome[n - 1]))))));
+  }), /*#__PURE__*/React.createElement(Note, null, "Il ", /*#__PURE__*/React.createElement("strong", null, "BEP"), " indica il fatturato minimo per pareggiare. Il ", /*#__PURE__*/React.createElement("strong", null, "margine di sicurezza"), " \xE8 quanto i ricavi superano il BEP: se ", "<", " 10%, basta un piccolo calo delle vendite per andare in perdita. La ", /*#__PURE__*/React.createElement("strong", null, "PFN"), " positiva indica che l'azienda ha pi\xF9 liquidit\xE0 che debiti \u2014 condizione ideale per negoziare con le banche. Il ", /*#__PURE__*/React.createElement("strong", null, "NWC"), " positivo indica che l'attivo corrente copre i debiti a breve."))));
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -2636,7 +3614,43 @@ function App() {
       fontWeight: 600,
       color: v >= 0 ? "#059669" : "#dc2626"
     }
-  }, fmt(v))))), /*#__PURE__*/React.createElement("div", {
+  }, fmt(v)))), financials.dscr[0] != null && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      paddingTop: 8,
+      borderTop: "1px solid #f3f4f6",
+      display: "flex",
+      justifyContent: "space-between",
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#6b7280"
+    }
+  }, "DSCR"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "'JetBrains Mono',monospace",
+      fontWeight: 700,
+      color: financials.dscr[0] >= 1.2 ? "#059669" : financials.dscr[0] >= 1 ? "#d97706" : "#dc2626"
+    }
+  }, fmt(financials.dscr[0], 2), "\xD7")), financials.bepMargin[0] != null && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      fontSize: 12,
+      marginTop: 2
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#6b7280"
+    }
+  }, "vs BEP"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "'JetBrains Mono',monospace",
+      fontWeight: 600,
+      color: financials.bepMargin[0] >= 0.1 ? "#059669" : financials.bepMargin[0] >= 0 ? "#d97706" : "#dc2626"
+    }
+  }, fmtPct(financials.bepMargin[0])))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12,
       padding: 14,
@@ -2664,7 +3678,9 @@ function App() {
     setRevenues: setRevenues,
     company: company
   }), step === 2 && /*#__PURE__*/React.createElement(StepProduction, {
-    revenues: revenues
+    revenues: revenues,
+    investments: investments,
+    company: company
   }), step === 3 && /*#__PURE__*/React.createElement(StepHR, {
     hrs: hrs,
     setHrs: setHrs,
@@ -2683,7 +3699,8 @@ function App() {
     company: company
   }), step === 7 && /*#__PURE__*/React.createElement(StepResults, {
     financials: financials,
-    company: company
+    company: company,
+    assumptions: assumptions
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",

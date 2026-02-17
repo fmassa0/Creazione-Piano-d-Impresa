@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
@@ -438,6 +439,263 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   };
 }
 const sanitizeName = s => (s || "azienda").replace(/[^a-zA-Z0-9À-ú_\- ]/g, "").replace(/\s+/g, "_").substring(0, 50);
+
+/* ═══════════════════════════════════════════════════════════
+   MONTE CARLO SIMULATION
+   ═══════════════════════════════════════════════════════════ */
+function runMonteCarlo(company, revenues, hrs, opexItems, investments, assumptions, iterations = 1000) {
+  const results = { netIncome: [], ebitda: [], cumCash: [], dscr: [], revenue: [] };
+  const n = company.yearsCount;
+  const last = n - 1;
+  
+  for (let iter = 0; iter < iterations; iter++) {
+    // Random perturbations: normal-ish distribution via Box-Muller
+    const randNorm = (mean, std) => {
+      const u1 = Math.random(), u2 = Math.random();
+      return mean + std * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    };
+    
+    // Perturb revenues: volumes ±25%, prices ±10%
+    const pertRevenues = revenues.map(r => ({
+      ...r,
+      volumes: r.volumes.map(v => Math.max(0, Math.round(v * randNorm(1, 0.15)))),
+      unitPrice: Math.max(0, r.unitPrice * randNorm(1, 0.07)),
+      grossMargin: Math.min(0.99, Math.max(0.01, r.grossMargin + randNorm(0, 0.05)))
+    }));
+    
+    // Perturb HR costs ±8%
+    const pertHrs = hrs.map(h => ({
+      ...h,
+      annualCost: Math.max(0, h.annualCost * randNorm(1, 0.05))
+    }));
+    
+    // Perturb OpEx ±12%
+    const pertOpex = opexItems.map(o => ({
+      ...o,
+      values: o.values.map(v => Math.max(0, v * randNorm(1, 0.08)))
+    }));
+    
+    try {
+      const f = computeFinancials(company, pertRevenues, pertHrs, pertOpex, investments, { ...assumptions });
+      results.revenue.push(f.totalRevenue[last]);
+      results.netIncome.push(f.netIncome[last]);
+      results.ebitda.push(f.ebitda[last]);
+      results.cumCash.push(f.cumCash[last]);
+      if (f.dscr[last] != null) results.dscr.push(f.dscr[last]);
+    } catch(e) { /* skip failed iterations */ }
+  }
+  
+  const stats = (arr) => {
+    if (!arr.length) return { mean: 0, p5: 0, p25: 0, p50: 0, p75: 0, p95: 0, min: 0, max: 0, std: 0, probPositive: 0 };
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mean = arr.reduce((s, v) => s + v, 0) / arr.length;
+    const variance = arr.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / arr.length;
+    return {
+      mean, std: Math.sqrt(variance),
+      p5: sorted[Math.floor(arr.length * 0.05)],
+      p25: sorted[Math.floor(arr.length * 0.25)],
+      p50: sorted[Math.floor(arr.length * 0.50)],
+      p75: sorted[Math.floor(arr.length * 0.75)],
+      p95: sorted[Math.floor(arr.length * 0.95)],
+      min: sorted[0], max: sorted[sorted.length - 1],
+      probPositive: arr.filter(v => v > 0).length / arr.length
+    };
+  };
+  
+  // Build histogram buckets for key metric
+  const buildHist = (arr, buckets = 25) => {
+    if (!arr.length) return [];
+    const min = Math.min(...arr), max = Math.max(...arr);
+    if (min === max) return [{ x: min, count: arr.length }];
+    const step = (max - min) / buckets;
+    const bins = Array.from({ length: buckets }, (_, i) => ({ x: min + step * (i + 0.5), count: 0 }));
+    arr.forEach(v => { const idx = Math.min(buckets - 1, Math.floor((v - min) / step)); bins[idx].count++; });
+    return bins;
+  };
+  
+  return {
+    revenue: { ...stats(results.revenue), hist: buildHist(results.revenue) },
+    netIncome: { ...stats(results.netIncome), hist: buildHist(results.netIncome) },
+    ebitda: { ...stats(results.ebitda), hist: buildHist(results.ebitda) },
+    cumCash: { ...stats(results.cumCash), hist: buildHist(results.cumCash) },
+    dscr: { ...stats(results.dscr), hist: buildHist(results.dscr) },
+    iterations: results.revenue.length
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SENSITIVITY ANALYSIS (Tornado)
+   ═══════════════════════════════════════════════════════════ */
+function runSensitivity(company, revenues, hrs, opexItems, investments, assumptions) {
+  const n = company.yearsCount;
+  const last = n - 1;
+  const baseF = computeFinancials(company, revenues, hrs, opexItems, investments, assumptions);
+  const baseEBITDA = baseF.ebitda[last];
+  const baseNI = baseF.netIncome[last];
+  const baseCash = baseF.cumCash[last];
+  
+  const factors = [
+    { label: "Volumi vendita", pct: 0.20, apply: (mult) => ({
+      revenues: revenues.map(r => ({ ...r, volumes: r.volumes.map(v => Math.round(v * mult)) }))
+    })},
+    { label: "Prezzi unitari", pct: 0.15, apply: (mult) => ({
+      revenues: revenues.map(r => ({ ...r, unitPrice: r.unitPrice * mult }))
+    })},
+    { label: "Margine lordo", pct: 0.10, apply: (mult) => ({
+      revenues: revenues.map(r => ({ ...r, grossMargin: Math.min(0.99, r.grossMargin * mult) }))
+    })},
+    { label: "Costo personale", pct: 0.15, apply: (mult) => ({
+      hrs: hrs.map(h => ({ ...h, annualCost: h.annualCost * mult }))
+    })},
+    { label: "Costi operativi", pct: 0.20, apply: (mult) => ({
+      opexItems: opexItems.map(o => ({ ...o, values: o.values.map(v => v * mult) }))
+    })},
+    { label: "Tasso interesse", pct: 0.30, apply: (mult) => ({
+      assumptions: { ...assumptions, interestRate: assumptions.interestRate * mult }
+    })},
+    { label: "DSO (gg incasso)", pct: 0.30, apply: (mult) => ({
+      assumptions: { ...assumptions, dso: Math.round(assumptions.dso * mult) }
+    })}
+  ];
+  
+  return factors.map(f => {
+    const upMods = f.apply(1 + f.pct);
+    const downMods = f.apply(1 - f.pct);
+    
+    const upF = computeFinancials(company, 
+      upMods.revenues || revenues, upMods.hrs || hrs, upMods.opexItems || opexItems,
+      investments, upMods.assumptions || assumptions);
+    const downF = computeFinancials(company,
+      downMods.revenues || revenues, downMods.hrs || hrs, downMods.opexItems || opexItems,
+      investments, downMods.assumptions || assumptions);
+    
+    return {
+      label: f.label,
+      pct: f.pct,
+      ebitda: { up: upF.ebitda[last], down: downF.ebitda[last], base: baseEBITDA },
+      netIncome: { up: upF.netIncome[last], down: downF.netIncome[last], base: baseNI },
+      cumCash: { up: upF.cumCash[last], down: downF.cumCash[last], base: baseCash }
+    };
+  }).sort((a, b) => Math.abs(b.ebitda.up - b.ebitda.down) - Math.abs(a.ebitda.up - a.ebitda.down));
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BILANCIO IMPORT PARSER (Excel/CSV)
+   ═══════════════════════════════════════════════════════════ */
+function parseBilancioExcel(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: "array" });
+        const data = {};
+        
+        // Try to find known Italian bilancio patterns across all sheets
+        wb.SheetNames.forEach(name => {
+          const ws = wb.Sheets[name];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+          
+          rows.forEach((row, idx) => {
+            const label = String(row[0] || "").toLowerCase().trim();
+            const val = parseFloat(String(row[1] || row[2] || "").replace(/[€.\s]/g, "").replace(",", ".")) || 0;
+            
+            // Ricavi
+            if (label.includes("ricavi") || label.includes("fatturato") || label.includes("vendite") || label.match(/valore della produzione/)) data.ricavi = val;
+            // COGS
+            if (label.includes("costo del venduto") || label.includes("materie prime") || label.includes("costi di produzione")) data.cogs = (data.cogs || 0) + val;
+            // Personale
+            if (label.includes("personale") || label.includes("salari") || label.includes("stipendi")) data.personale = val;
+            // Ammortamenti
+            if (label.includes("ammortament")) data.ammortamenti = val;
+            // EBITDA
+            if (label.match(/ebitda/i)) data.ebitda = val;
+            // Utile netto
+            if (label.includes("utile") && (label.includes("netto") || label.includes("esercizio"))) data.utileNetto = val;
+            // Cassa
+            if (label.includes("disponibilit") || label.includes("cassa") || (label.includes("banca") && !label.includes("debiti"))) data.cassa = (data.cassa || 0) + val;
+            // Debiti
+            if (label.includes("debiti verso banche") || label.includes("debiti finanziari")) data.debitiFinanziari = (data.debitiFinanziari || 0) + val;
+            // Crediti
+            if (label.includes("crediti") && label.includes("clienti") || label.includes("crediti commerciali")) data.creditiCommerciali = val;
+            // Debiti commerciali
+            if (label.includes("debiti") && (label.includes("fornitori") || label.includes("commerciali"))) data.debitiCommerciali = val;
+            // Patrimonio netto
+            if (label.includes("patrimonio netto") || label.includes("totale patrimonio")) data.patrimonioNetto = val;
+            // Capitale sociale
+            if (label.includes("capitale sociale")) data.capitaleSociale = val;
+            // Immobilizzazioni
+            if (label.includes("immobilizzazioni") && (label.includes("nette") || label.includes("totale"))) data.immobilizzazioni = val;
+            // Rimanenze
+            if (label.includes("rimanenz")) data.rimanenze = val;
+            // Numero dipendenti
+            if (label.includes("dipendenti") || label.includes("organico") || label.includes("headcount")) data.dipendenti = Math.round(val);
+            // Costi operativi / servizi
+            if (label.includes("servizi") || label.includes("godimento beni terzi") || label.includes("oneri diversi")) data.costiOperativi = (data.costiOperativi || 0) + val;
+          });
+        });
+        
+        resolve(data);
+      } catch (err) {
+        reject(new Error("Impossibile leggere il file: " + err.message));
+      }
+    };
+    reader.onerror = () => reject(new Error("Errore lettura file"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, setAssumptions, company) {
+  // Populate from parsed bilancio
+  if (data.capitaleSociale) setCompany(c => ({ ...c, capitaleSociale: data.capitaleSociale, isExisting: true }));
+  
+  if (data.ricavi) {
+    const margin = data.cogs ? 1 - (data.cogs / data.ricavi) : 0.40;
+    setRevenues([{
+      ...DEFAULTS.revenueLine(),
+      name: "Ricavi da bilancio",
+      unitPrice: data.ricavi,
+      volumes: [1, 1, 1, 1, 1],
+      growthRates: [0, 0.05, 0.05, 0.05, 0.05],
+      grossMargin: Math.max(0.05, Math.min(0.95, margin))
+    }]);
+  }
+  
+  if (data.personale && data.dipendenti) {
+    setHrs([{
+      ...DEFAULTS.hr(),
+      role: "Organico da bilancio",
+      annualCost: Math.round(data.personale / data.dipendenti),
+      count: [data.dipendenti, data.dipendenti, data.dipendenti, data.dipendenti, data.dipendenti]
+    }]);
+  } else if (data.personale) {
+    setHrs([{
+      ...DEFAULTS.hr(),
+      role: "Personale da bilancio",
+      annualCost: data.personale,
+      count: [1, 1, 1, 1, 1]
+    }]);
+  }
+  
+  if (data.costiOperativi) {
+    setOpexItems([{
+      ...DEFAULTS.opex(),
+      name: "Costi operativi da bilancio",
+      values: [data.costiOperativi, 0, 0, 0, 0],
+      growthRate: 0.02
+    }]);
+  }
+  
+  setAssumptions(a => ({
+    ...a,
+    openingCash: data.cassa || 0,
+    openingDebt: data.debitiFinanziari || 0,
+    openingEquity: data.patrimonioNetto || 0,
+    dso: data.creditiCommerciali && data.ricavi ? Math.round(data.creditiCommerciali / data.ricavi * 360) : a.dso,
+    dpo: data.debitiCommerciali && data.cogs ? Math.round(data.debitiCommerciali / data.cogs * 360) : a.dpo
+  }));
+  
+  return data;
+}
 
 /* ═══════════════════════════════════════════════════════════
    EXPORT ENGINES
@@ -1437,7 +1695,11 @@ function Badge({
    ═══════════════════════════════════════════════════════════ */
 function StepCompany({
   company: c,
-  setCompany: set
+  setCompany: set,
+  setRevenues,
+  setHrs,
+  setOpexItems,
+  setAssumptions
 }) {
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1447,7 +1709,16 @@ function StepCompany({
     }
   }, /*#__PURE__*/React.createElement(Tip, {
     text: "Inserisci i dati generali dell'impresa. Lo scenario influenza i ricavi: Pessimistico applica \u221215%, Ottimistico +15%."
-  }), /*#__PURE__*/React.createElement(Card, {
+  }),
+  /*#__PURE__*/React.createElement(ImportBilancioPanel, {
+    setCompany: set,
+    setRevenues: setRevenues,
+    setHrs: setHrs,
+    setOpexItems: setOpexItems,
+    setAssumptions: setAssumptions,
+    company: c
+  }),
+  /*#__PURE__*/React.createElement(Card, {
     title: "Dati Azienda"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3087,16 +3358,507 @@ function Note({
     }
   }, "\uD83D\uDCD8 ", /*#__PURE__*/React.createElement("strong", null, "Nota:"), " ", children);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   CHART.JS WRAPPER COMPONENT
+   ═══════════════════════════════════════════════════════════ */
+function ChartCanvas({ type, data, options, height = 280 }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+  
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    if (chartRef.current) chartRef.current.destroy();
+    
+    const ctx = canvasRef.current.getContext("2d");
+    chartRef.current = new Chart(ctx, {
+      type,
+      data,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "top", labels: { font: { family: "'DM Sans',sans-serif", size: 11 }, padding: 12, usePointStyle: true } },
+          tooltip: { backgroundColor: "#0f2440", titleFont: { family: "'DM Sans',sans-serif" }, bodyFont: { family: "'JetBrains Mono',monospace", size: 11 }, padding: 10, cornerRadius: 8,
+            callbacks: { label: (ctx) => { const v = ctx.parsed.y ?? ctx.parsed; return ctx.dataset.label + ": € " + fmt(v); } }
+          }
+        },
+        scales: type !== "doughnut" && type !== "pie" && type !== "radar" ? {
+          x: { grid: { display: false }, ticks: { font: { family: "'DM Sans',sans-serif", size: 11 } } },
+          y: { grid: { color: "#f3f4f6" }, ticks: { font: { family: "'JetBrains Mono',monospace", size: 10 }, callback: v => fmt(v) } }
+        } : undefined,
+        ...options
+      }
+    });
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [type, JSON.stringify(data), JSON.stringify(options)]);
+  
+  return React.createElement("div", { style: { height, position: "relative" } },
+    React.createElement("canvas", { ref: canvasRef })
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CHARTS PANEL (Tab Grafici)
+   ═══════════════════════════════════════════════════════════ */
+function ChartsPanel({ financials: f, company }) {
+  const n = company.yearsCount;
+  const labels = YL.slice(0, n);
+  const colors = { blue: "#2563eb", green: "#059669", red: "#dc2626", amber: "#d97706", purple: "#7c3aed", cyan: "#06b6d4", pink: "#ec4899" };
+  
+  return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 20 } },
+    // Revenue + EBITDA + Net Income trend
+    React.createElement(Card, { title: "📈 Trend Ricavi, EBITDA, Utile Netto" },
+      React.createElement(ChartCanvas, {
+        type: "line",
+        height: 320,
+        data: {
+          labels,
+          datasets: [
+            { label: "Ricavi", data: f.totalRevenue.slice(0, n), borderColor: colors.blue, backgroundColor: colors.blue + "20", fill: true, tension: 0.3, borderWidth: 2.5, pointRadius: 5 },
+            { label: "EBITDA", data: f.ebitda.slice(0, n), borderColor: colors.green, backgroundColor: colors.green + "20", fill: true, tension: 0.3, borderWidth: 2.5, pointRadius: 5 },
+            { label: "Utile Netto", data: f.netIncome.slice(0, n), borderColor: colors.purple, backgroundColor: colors.purple + "20", fill: true, tension: 0.3, borderWidth: 2.5, pointRadius: 5 }
+          ]
+        }
+      })
+    ),
+    // Cash Flow waterfall (stacked bar)
+    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 } },
+      React.createElement(Card, { title: "💰 Cash Flow per Attività" },
+        React.createElement(ChartCanvas, {
+          type: "bar",
+          height: 280,
+          data: {
+            labels,
+            datasets: [
+              { label: "CF Operativo", data: f.cfOperating.slice(0, n), backgroundColor: colors.green + "cc" },
+              { label: "CF Investimento", data: f.cfInvesting.slice(0, n), backgroundColor: colors.red + "cc" },
+              { label: "CF Finanziamento", data: f.cfFinancing.slice(0, n), backgroundColor: colors.blue + "cc" }
+            ]
+          },
+          options: { plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ": € " + fmt(ctx.parsed.y) } } } }
+        })
+      ),
+      React.createElement(Card, { title: "🏦 Cassa Cumulata vs Debito" },
+        React.createElement(ChartCanvas, {
+          type: "bar",
+          height: 280,
+          data: {
+            labels,
+            datasets: [
+              { label: "Cassa cumulata", data: f.cumCash.slice(0, n), backgroundColor: f.cumCash.slice(0, n).map(v => v >= 0 ? colors.green + "cc" : colors.red + "cc") },
+              { label: "Debito finanziario", data: f.netDebt.slice(0, n).map(v => -v), backgroundColor: colors.amber + "cc" }
+            ]
+          }
+        })
+      )
+    ),
+    // Margins radar
+    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 } },
+      React.createElement(Card, { title: "🎯 Composizione Costi (Ultimo Anno)" },
+        React.createElement(ChartCanvas, {
+          type: "doughnut",
+          height: 260,
+          data: {
+            labels: ["COGS", "Personale", "Costi Op.", "Ammortamenti", "Interessi", "Imposte"],
+            datasets: [{
+              data: [f.totalCOGS[n-1], f.hrCosts[n-1], f.opexCosts[n-1], f.depreciation[n-1], f.interest[n-1], f.totalTax[n-1]].map(v => Math.max(0, v)),
+              backgroundColor: [colors.red+"cc", colors.blue+"cc", colors.amber+"cc", colors.purple+"cc", colors.cyan+"cc", colors.pink+"cc"]
+            }]
+          },
+          options: { plugins: { tooltip: { callbacks: { label: ctx => ctx.label + ": € " + fmt(ctx.parsed) } } } }
+        })
+      ),
+      React.createElement(Card, { title: "📊 Margini nel Tempo" },
+        React.createElement(ChartCanvas, {
+          type: "line",
+          height: 260,
+          data: {
+            labels,
+            datasets: [
+              { label: "Margine Lordo %", data: f.grossMarginPct.slice(0, n).map(v => (v || 0) * 100), borderColor: colors.blue, tension: 0.3, borderWidth: 2, pointRadius: 4 },
+              { label: "EBITDA Margin %", data: f.ebitdaMargin.slice(0, n).map(v => (v || 0) * 100), borderColor: colors.green, tension: 0.3, borderWidth: 2, pointRadius: 4 },
+              { label: "Margine Netto %", data: f.netMargin.slice(0, n).map(v => (v || 0) * 100), borderColor: colors.purple, tension: 0.3, borderWidth: 2, pointRadius: 4 }
+            ]
+          },
+          options: { scales: { y: { grid: { color: "#f3f4f6" }, ticks: { callback: v => v + "%" } } }, plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ": " + ctx.parsed.y.toFixed(1) + "%" } } } }
+        })
+      )
+    ),
+    // BEP vs Revenue
+    React.createElement(Card, { title: "🎯 Ricavi vs Break-Even Point" },
+      React.createElement(ChartCanvas, {
+        type: "bar",
+        height: 260,
+        data: {
+          labels,
+          datasets: [
+            { label: "Ricavi", data: f.totalRevenue.slice(0, n), backgroundColor: colors.green + "cc" },
+            { label: "Break-Even", data: f.bep.slice(0, n).map(v => v || 0), backgroundColor: colors.red + "55", borderColor: colors.red, borderWidth: 2, type: "line", fill: false, tension: 0.3, pointRadius: 5 }
+          ]
+        }
+      })
+    )
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SENSITIVITY ANALYSIS PANEL
+   ═══════════════════════════════════════════════════════════ */
+function SensitivityPanel({ company, revenues, hrs, opexItems, investments, assumptions }) {
+  const [sensData, setSensData] = useState(null);
+  const [metric, setMetric] = useState("ebitda");
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try { setSensData(runSensitivity(company, revenues, hrs, opexItems, investments, assumptions)); }
+      catch(e) { console.error(e); }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [company, revenues, hrs, opexItems, investments, assumptions]);
+  
+  if (!sensData) return React.createElement("div", { className: "pulse", style: { textAlign: "center", padding: 40, color: "#6b7280" } }, "Calcolo analisi di sensitività...");
+  
+  const metricLabels = { ebitda: "EBITDA", netIncome: "Utile Netto", cumCash: "Cassa Cumulata" };
+  const base = sensData[0]?.[metric]?.base || 0;
+  const maxRange = Math.max(...sensData.map(s => Math.abs(s[metric].up - s[metric].down)));
+  
+  return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
+    React.createElement(Tip, { text: `L'analisi di sensitività mostra come varia il risultato al variare di ogni singolo parametro (±%). I fattori più lunghi sono quelli con maggiore impatto.` }),
+    React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
+      Object.entries(metricLabels).map(([k, v]) =>
+        React.createElement("button", {
+          key: k, onClick: () => setMetric(k),
+          style: { padding: "6px 14px", borderRadius: 8, border: metric === k ? "2px solid #2563eb" : "1px solid #d1d5db", 
+                   background: metric === k ? "#eff6ff" : "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
+                   color: metric === k ? "#2563eb" : "#6b7280", cursor: "pointer" }
+        }, v)
+      )
+    ),
+    React.createElement(Card, { title: `🌪️ Tornado Chart — ${metricLabels[metric]} (Anno ${company.yearsCount})` },
+      React.createElement("div", { style: { padding: "8px 0" } },
+        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 10, color: "#6b7280", fontWeight: 600, marginBottom: 12, padding: "0 60px 0 160px" } },
+          React.createElement("span", null, "▼ Scenario negativo"),
+          React.createElement("span", null, `Base: € ${fmt(base)}`),
+          React.createElement("span", null, "Scenario positivo ▲")
+        ),
+        sensData.map((s, i) => {
+          const d = s[metric];
+          const low = Math.min(d.up, d.down);
+          const high = Math.max(d.up, d.down);
+          const range = high - low;
+          const pctWidth = maxRange > 0 ? (range / maxRange) * 100 : 0;
+          const isInverted = d.down > d.up; // e.g. cost increase hurts
+          
+          return React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", marginBottom: 8 } },
+            React.createElement("span", { style: { width: 150, fontSize: 12, fontWeight: 500, color: "#374151", textAlign: "right", paddingRight: 10, flexShrink: 0 } },
+              s.label, React.createElement("span", { style: { color: "#9ca3af", fontSize: 10 } }, ` ±${Math.round(s.pct * 100)}%`)
+            ),
+            React.createElement("div", { style: { flex: 1, height: 28, background: "#f3f4f6", borderRadius: 6, position: "relative", overflow: "hidden" } },
+              // Base line
+              React.createElement("div", { style: { position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, background: "#374151", zIndex: 2 } }),
+              // Negative side
+              React.createElement("div", { style: {
+                position: "absolute", right: "50%", top: 2, bottom: 2, borderRadius: 4,
+                width: `${pctWidth / 2}%`, background: "#ef4444cc"
+              } }),
+              // Positive side
+              React.createElement("div", { style: {
+                position: "absolute", left: "50%", top: 2, bottom: 2, borderRadius: 4,
+                width: `${pctWidth / 2}%`, background: "#22c55ecc"
+              } })
+            ),
+            React.createElement("span", { style: { width: 90, fontSize: 10, fontFamily: "'JetBrains Mono',monospace", color: "#6b7280", paddingLeft: 8, flexShrink: 0 } },
+              `Δ € ${fmt(Math.abs(range))}`)
+          );
+        })
+      ),
+      React.createElement(Note, null, "Il grafico mostra la variazione del ", metricLabels[metric], " al variare di ogni singolo parametro. I fattori in cima al tornado hanno il maggiore impatto e meritano l'analisi più attenta nella preparazione del business plan.")
+    )
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MONTE CARLO PANEL
+   ═══════════════════════════════════════════════════════════ */
+function MonteCarloPanel({ company, revenues, hrs, opexItems, investments, assumptions }) {
+  const [mcData, setMcData] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [mcMetric, setMcMetric] = useState("netIncome");
+  const [iterations, setIterations] = useState(500);
+  
+  const run = useCallback(() => {
+    setRunning(true);
+    setTimeout(() => {
+      try {
+        const result = runMonteCarlo(company, revenues, hrs, opexItems, investments, assumptions, iterations);
+        setMcData(result);
+      } catch(e) { console.error(e); }
+      setRunning(false);
+    }, 50);
+  }, [company, revenues, hrs, opexItems, investments, assumptions, iterations]);
+  
+  const metricLabels = { revenue: "Ricavi", ebitda: "EBITDA", netIncome: "Utile Netto", cumCash: "Cassa Cumulata", dscr: "DSCR" };
+  const d = mcData?.[mcMetric];
+  
+  return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
+    React.createElement(Tip, { text: "La simulazione Monte Carlo genera centinaia di scenari casuali variando simultaneamente volumi, prezzi, margini e costi. Mostra la distribuzione probabilistica dei risultati per valutare il rischio reale del piano." }),
+    React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" } },
+      React.createElement(InputField, { label: "Iterazioni", value: iterations, onChange: v => setIterations(Math.max(100, Math.min(5000, v))), style: { maxWidth: 140 } }),
+      React.createElement(Btn, { primary: true, onClick: run, disabled: running }, running ? "⏳ Calcolo..." : "🎲 Avvia Simulazione"),
+      mcData && React.createElement("span", { style: { fontSize: 12, color: "#059669", fontWeight: 600 } }, `✓ ${mcData.iterations} simulazioni completate`)
+    ),
+    mcData && React.createElement(React.Fragment, null,
+      React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 8 } },
+        Object.entries(metricLabels).map(([k, v]) =>
+          React.createElement("button", {
+            key: k, onClick: () => setMcMetric(k),
+            style: { padding: "6px 14px", borderRadius: 8, border: mcMetric === k ? "2px solid #7c3aed" : "1px solid #d1d5db",
+                     background: mcMetric === k ? "#f5f3ff" : "#fff", fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
+                     color: mcMetric === k ? "#7c3aed" : "#6b7280", cursor: "pointer" }
+          }, v)
+        )
+      ),
+      d && React.createElement(Card, { title: `🎲 Distribuzione ${metricLabels[mcMetric]} (Anno ${company.yearsCount})` },
+        // Histogram
+        React.createElement(ChartCanvas, {
+          type: "bar",
+          height: 260,
+          data: {
+            labels: d.hist.map(b => fmt(b.x)),
+            datasets: [{
+              label: "Frequenza",
+              data: d.hist.map(b => b.count),
+              backgroundColor: d.hist.map(b => b.x >= 0 ? "#22c55eaa" : "#ef4444aa"),
+              borderRadius: 3
+            }]
+          },
+          options: {
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} simulazioni`, title: items => `€ ${items[0].label}` } } },
+            scales: { x: { display: false }, y: { title: { display: true, text: "Frequenza" } } }
+          }
+        }),
+        // Stats cards
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginTop: 16 } },
+          [
+            { label: "Media", value: d.mean, color: "#2563eb" },
+            { label: "Mediana (P50)", value: d.p50, color: "#7c3aed" },
+            { label: "P5 (worst 5%)", value: d.p5, color: "#dc2626" },
+            { label: "P95 (best 5%)", value: d.p95, color: "#059669" }
+          ].map(s => React.createElement("div", { key: s.label, style: { padding: 12, background: s.color + "08", borderRadius: 10, borderLeft: `3px solid ${s.color}` } },
+            React.createElement("div", { style: { fontSize: 10, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" } }, s.label),
+            React.createElement("div", { style: { fontSize: 16, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: s.color, marginTop: 4 } },
+              mcMetric === "dscr" ? fmt(s.value, 2) + "×" : "€ " + fmt(s.value))
+          ))
+        ),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 } },
+          React.createElement("div", { style: { padding: 12, background: d.probPositive >= 0.7 ? "#ecfdf5" : d.probPositive >= 0.5 ? "#fffbeb" : "#fef2f2", borderRadius: 10, textAlign: "center" } },
+            React.createElement("div", { style: { fontSize: 10, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" } }, "Prob. Positivo"),
+            React.createElement("div", { style: { fontSize: 22, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: d.probPositive >= 0.7 ? "#059669" : d.probPositive >= 0.5 ? "#d97706" : "#dc2626" } },
+              (d.probPositive * 100).toFixed(0) + "%")
+          ),
+          React.createElement("div", { style: { padding: 12, background: "#f3f4f6", borderRadius: 10, textAlign: "center" } },
+            React.createElement("div", { style: { fontSize: 10, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" } }, "Dev. Standard"),
+            React.createElement("div", { style: { fontSize: 16, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: "#374151", marginTop: 4 } },
+              mcMetric === "dscr" ? fmt(d.std, 2) : "€ " + fmt(d.std))
+          ),
+          React.createElement("div", { style: { padding: 12, background: "#f3f4f6", borderRadius: 10, textAlign: "center" } },
+            React.createElement("div", { style: { fontSize: 10, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" } }, "Range (P5-P95)"),
+            React.createElement("div", { style: { fontSize: 14, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: "#374151", marginTop: 4 } },
+              mcMetric === "dscr" ? `${fmt(d.p5, 2)} — ${fmt(d.p95, 2)}` : `€ ${fmt(d.p5)} — € ${fmt(d.p95)}`)
+          )
+        ),
+        React.createElement(Note, null,
+          d.probPositive >= 0.8 ? `Con una probabilità dell'${(d.probPositive*100).toFixed(0)}% di risultato positivo, il piano mostra buona resilienza al rischio.` :
+          d.probPositive >= 0.6 ? `La probabilità del ${(d.probPositive*100).toFixed(0)}% di risultato positivo è discreta ma presenta rischi significativi. Considera margini di sicurezza più ampi.` :
+          `Solo il ${(d.probPositive*100).toFixed(0)}% delle simulazioni ha esito positivo. Il piano presenta un livello di rischio elevato.`,
+          " Il range P5-P95 indica l'intervallo in cui cadrà il risultato nel 90% dei casi."
+        )
+      )
+    )
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SCENARIO COMPARISON PANEL
+   ═══════════════════════════════════════════════════════════ */
+function ScenarioComparePanel({ company, revenues, hrs, opexItems, investments, assumptions, savedScenarios, onSaveScenario }) {
+  const n = company.yearsCount;
+  const last = n - 1;
+  
+  // Compute all 3 scenarios
+  const scenarios = useMemo(() => {
+    const mults = { base: 1, pessimistic: assumptions.scenarioMultiplier?.pessimistic || 0.85, optimistic: assumptions.scenarioMultiplier?.optimistic || 1.15 };
+    return Object.entries(mults).map(([key, mult]) => {
+      const scenComp = { ...company, scenario: key };
+      const scenAssump = { ...assumptions, scenarioMultiplier: { ...assumptions.scenarioMultiplier, [key]: mult } };
+      const f = computeFinancials(scenComp, revenues, hrs, opexItems, investments, scenAssump);
+      return { key, label: key === "base" ? "🎯 Base" : key === "pessimistic" ? "⚠️ Pessimistico" : "🚀 Ottimistico", mult, financials: f };
+    });
+  }, [company, revenues, hrs, opexItems, investments, assumptions]);
+  
+  const metrics = [
+    { label: "Ricavi", key: "totalRevenue" },
+    { label: "EBITDA", key: "ebitda" },
+    { label: "Utile Netto", key: "netIncome" },
+    { label: "Cassa Cumulata", key: "cumCash" },
+    { label: "DSCR", key: "dscr", dec: 2, suffix: "×" },
+    { label: "Margine EBITDA %", key: "ebitdaMargin", pct: true },
+    { label: "ROE", key: "roe", pct: true },
+    { label: "PFN", key: "pfn" },
+    { label: "Current Ratio", key: "currentRatio", dec: 2 },
+    { label: "Break-Even (€)", key: "bep" }
+  ];
+  
+  const colors = { base: "#2563eb", pessimistic: "#dc2626", optimistic: "#059669" };
+  
+  return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
+    React.createElement(Tip, { text: `Confronto side-by-side dei tre scenari: Pessimistico (−${Math.round((1-assumptions.scenarioMultiplier?.pessimistic||0.85)*100)}% ricavi), Base, Ottimistico (+${Math.round((assumptions.scenarioMultiplier?.optimistic||1.15-1)*100)}% ricavi). Gli scenari modificano solo i volumi di vendita; costi e ipotesi restano invariati.` }),
+    
+    // Chart comparison
+    React.createElement(Card, { title: "📊 Confronto Scenari — Ricavi e Utile Netto" },
+      React.createElement(ChartCanvas, {
+        type: "bar",
+        height: 300,
+        data: {
+          labels: YL.slice(0, n),
+          datasets: scenarios.flatMap(s => [
+            { label: `Ricavi ${s.label}`, data: s.financials.totalRevenue.slice(0, n), backgroundColor: colors[s.key] + "66", borderColor: colors[s.key], borderWidth: 1 },
+          ])
+        },
+        options: { plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ": € " + fmt(ctx.parsed.y) } } } }
+      })
+    ),
+    
+    // KPI comparison table
+    React.createElement(Card, { title: "📋 Tabella Comparativa (Anno " + n + ")", accent: true },
+      React.createElement("div", { style: { overflowX: "auto" } },
+        React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans',sans-serif" } },
+          React.createElement("thead", null,
+            React.createElement("tr", null,
+              React.createElement("th", { style: { textAlign: "left", padding: "10px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11, textTransform: "uppercase", color: "#6b7280" } }, "KPI"),
+              scenarios.map(s => React.createElement("th", { key: s.key, style: { textAlign: "right", padding: "10px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11, textTransform: "uppercase", color: colors[s.key], fontWeight: 700 } }, s.label))
+            )
+          ),
+          React.createElement("tbody", null,
+            metrics.map((m, i) => React.createElement("tr", { key: m.key, style: { background: i % 2 === 0 ? "#f9fafb" : "transparent" } },
+              React.createElement("td", { style: { padding: "8px 12px", fontWeight: 500, color: "#374151" } }, m.label),
+              scenarios.map(s => {
+                const v = s.financials[m.key]?.[last];
+                return React.createElement("td", { key: s.key, style: { padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, color: v < 0 ? "#dc2626" : "#374151" } },
+                  m.pct ? fmtPct(v) : m.dec ? fmt(v, m.dec) + (m.suffix || "") : "€ " + fmt(v));
+              })
+            ))
+          )
+        )
+      )
+    ),
+    
+    // Saved scenarios
+    savedScenarios.length > 0 && React.createElement(Card, { title: "📂 Scenari Salvati" },
+      React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+        savedScenarios.map((s, i) => React.createElement("div", { key: i, style: { padding: "10px 14px", background: "#f9fafb", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+          React.createElement("div", null,
+            React.createElement("strong", null, s.name), " — ",
+            React.createElement("span", { style: { fontSize: 12, color: "#6b7280" } }, `Ricavi: € ${fmt(s.revenue)} | EBITDA: € ${fmt(s.ebitda)} | Utile: € ${fmt(s.netIncome)}`)
+          ),
+          React.createElement("span", { style: { fontSize: 11, color: "#9ca3af" } }, s.date)
+        ))
+      )
+    ),
+    
+    React.createElement(Btn, { primary: true, onClick: () => {
+      const name = prompt("Nome scenario:", company.name + " - " + new Date().toLocaleDateString("it-IT"));
+      if (name) onSaveScenario({
+        name,
+        date: new Date().toLocaleDateString("it-IT"),
+        revenue: scenarios[0].financials.totalRevenue[last],
+        ebitda: scenarios[0].financials.ebitda[last],
+        netIncome: scenarios[0].financials.netIncome[last]
+      });
+    } }, "💾 Salva Scenario Corrente")
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BILANCIO IMPORT PANEL (for Step 0)
+   ═══════════════════════════════════════════════════════════ */
+function ImportBilancioPanel({ setCompany, setRevenues, setHrs, setOpexItems, setAssumptions, company }) {
+  const [status, setStatus] = useState(null);
+  const [parsedData, setParsedData] = useState(null);
+  const inputRef = useRef(null);
+  
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setStatus("loading");
+    try {
+      const data = await parseBilancioExcel(file);
+      setParsedData(data);
+      setStatus("parsed");
+    } catch(err) {
+      setStatus("error");
+      alert("❌ " + err.message);
+    }
+    e.target.value = "";
+  };
+  
+  const applyData = () => {
+    if (!parsedData) return;
+    applyBilancioData(parsedData, setCompany, setRevenues, setHrs, setOpexItems, setAssumptions, company);
+    setStatus("applied");
+  };
+  
+  return React.createElement(Card, { title: "📥 Importa Bilancio Esistente (Excel)" },
+    React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+      React.createElement("p", { style: { fontSize: 13, color: "#4b5563", lineHeight: 1.6 } },
+        "Carica un bilancio in formato Excel (.xlsx, .xls, .csv) per pre-compilare automaticamente ricavi, costi, personale e situazione patrimoniale. Il sistema riconosce le voci standard del bilancio italiano (CEE/abbreviato)."),
+      React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
+        React.createElement("input", { ref: inputRef, type: "file", accept: ".xlsx,.xls,.csv", onChange: handleFile, style: { display: "none" } }),
+        React.createElement(Btn, { primary: true, onClick: () => inputRef.current.click() }, "📂 Carica Bilancio Excel"),
+        status === "loading" && React.createElement("span", { className: "pulse", style: { fontSize: 12, color: "#6b7280" } }, "⏳ Analisi in corso..."),
+        status === "applied" && React.createElement("span", { style: { fontSize: 12, color: "#059669", fontWeight: 600 } }, "✅ Dati importati!")
+      ),
+      parsedData && status === "parsed" && React.createElement("div", { style: { padding: 14, background: "#f9fafb", borderRadius: 10 } },
+        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#1e3a5f", marginBottom: 8 } }, "📋 Dati rilevati dal bilancio:"),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 } },
+          Object.entries({
+            "Ricavi": parsedData.ricavi, "COGS": parsedData.cogs, "Personale": parsedData.personale,
+            "Costi Op.": parsedData.costiOperativi, "Cassa": parsedData.cassa, "Debiti Fin.": parsedData.debitiFinanziari,
+            "PN": parsedData.patrimonioNetto, "Capitale Soc.": parsedData.capitaleSociale, "Dipendenti": parsedData.dipendenti
+          }).filter(([_, v]) => v).map(([k, v]) => React.createElement("div", { key: k, style: { padding: "6px 10px", background: "#fff", borderRadius: 6, border: "1px solid #e5e7eb" } },
+            React.createElement("span", { style: { fontSize: 10, color: "#6b7280", display: "block" } }, k),
+            React.createElement("span", { style: { fontSize: 13, fontFamily: "'JetBrains Mono',monospace", fontWeight: 600 } }, typeof v === "number" && k !== "Dipendenti" ? fmtEur(v) : v)
+          ))
+        ),
+        React.createElement("div", { style: { marginTop: 10, display: "flex", gap: 8 } },
+          React.createElement(Btn, { primary: true, onClick: applyData }, "✅ Applica al Piano"),
+          React.createElement(Btn, { onClick: () => { setParsedData(null); setStatus(null); } }, "❌ Annulla")
+        )
+      ),
+      React.createElement(Note, null, "Formati supportati: bilancio CEE, bilancio abbreviato, esportazioni da software gestionali (es. TeamSystem, Zucchetti, Buffetti). Il parser cerca automaticamente le voci standard: ricavi, costi del venduto, costi del personale, immobilizzazioni, debiti, patrimonio netto. Per risultati migliori, assicurati che la prima colonna contenga le etichette delle voci.")
+    )
+  );
+}
 function StepResults({
   financials: f,
   company,
-  assumptions
+  assumptions,
+  revenues,
+  hrs,
+  opexItems,
+  investments,
+  savedScenarios,
+  onSaveScenario
 }) {
   const n = company.yearsCount;
   const [tab, setTab] = useState("dashboard");
   const tabs = [{
     id: "dashboard",
     label: "📊 Dashboard"
+  }, {
+    id: "charts",
+    label: "📈 Grafici"
   }, {
     id: "is",
     label: "Conto Economico"
@@ -3109,6 +3871,15 @@ function StepResults({
   }, {
     id: "kpi",
     label: "KPI Avanzati"
+  }, {
+    id: "sensitivity",
+    label: "🌪️ Sensitività"
+  }, {
+    id: "montecarlo",
+    label: "🎲 Monte Carlo"
+  }, {
+    id: "scenarios",
+    label: "🔀 Scenari"
   }];
   const Div = () => /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3132,7 +3903,8 @@ function StepResults({
       background: "#f3f4f6",
       padding: 4,
       borderRadius: 12,
-      flexWrap: "wrap"
+      flexWrap: "wrap",
+      overflowX: "auto"
     }
   }, tabs.map(t => /*#__PURE__*/React.createElement("button", {
     key: t.id,
@@ -3143,7 +3915,7 @@ function StepResults({
       border: "none",
       borderRadius: 8,
       background: tab === t.id ? "#fff" : "transparent",
-      minWidth: 120,
+      minWidth: 90,
       color: tab === t.id ? "#111827" : "#6b7280",
       fontFamily: "'DM Sans',sans-serif",
       fontWeight: 600,
@@ -3803,7 +4575,14 @@ function StepResults({
     label: "Ricavo per dipendente",
     values: f.revPerEmp,
     n: n
-  }), /*#__PURE__*/React.createElement(Note, null, "Il ", /*#__PURE__*/React.createElement("strong", null, "BEP"), " indica il fatturato minimo per pareggiare. Il ", /*#__PURE__*/React.createElement("strong", null, "margine di sicurezza"), " \xE8 quanto i ricavi superano il BEP: se ", "<", " 10%, basta un piccolo calo delle vendite per andare in perdita. La ", /*#__PURE__*/React.createElement("strong", null, "PFN"), " positiva indica che l'azienda ha pi\xF9 liquidit\xE0 che debiti \u2014 condizione ideale per negoziare con le banche. Il ", /*#__PURE__*/React.createElement("strong", null, "NWC"), " positivo indica che l'attivo corrente copre i debiti a breve."))));
+  }), /*#__PURE__*/React.createElement(Note, null, "Il ", /*#__PURE__*/React.createElement("strong", null, "BEP"), " indica il fatturato minimo per pareggiare. Il ", /*#__PURE__*/React.createElement("strong", null, "margine di sicurezza"), " \xE8 quanto i ricavi superano il BEP: se ", "<", " 10%, basta un piccolo calo delle vendite per andare in perdita. La ", /*#__PURE__*/React.createElement("strong", null, "PFN"), " positiva indica che l'azienda ha pi\xF9 liquidit\xE0 che debiti \u2014 condizione ideale per negoziare con le banche. Il ", /*#__PURE__*/React.createElement("strong", null, "NWC"), " positivo indica che l'attivo corrente copre i debiti a breve.")),
+    
+    /* ─── NEW TABS ─── */
+    tab === "charts" && React.createElement(ChartsPanel, { financials: f, company }),
+    tab === "sensitivity" && React.createElement(SensitivityPanel, { company, revenues, hrs, opexItems, investments, assumptions }),
+    tab === "montecarlo" && React.createElement(MonteCarloPanel, { company, revenues, hrs, opexItems, investments, assumptions }),
+    tab === "scenarios" && React.createElement(ScenarioComparePanel, { company, revenues, hrs, opexItems, investments, assumptions, savedScenarios: savedScenarios || [], onSaveScenario: onSaveScenario || (() => {}) })
+    ));
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -3817,6 +4596,7 @@ function App() {
   const [opexItems, setOpexItems] = useState([DEFAULTS.opex()]);
   const [investments, setInvestments] = useState([DEFAULTS.investment()]);
   const [assumptions, setAssumptions] = useState(DEFAULTS.assumptions);
+  const [savedScenarios, setSavedScenarios] = useState([]);
   const fileRef = useRef(null);
   const financials = useMemo(() => computeFinancials(company, revenues, hrs, opexItems, investments, assumptions), [company, revenues, hrs, opexItems, investments, assumptions]);
   const exportJSON = () => {
@@ -4078,7 +4858,11 @@ function App() {
     className: "fade-in"
   }, step === 0 && /*#__PURE__*/React.createElement(StepCompany, {
     company: company,
-    setCompany: setCompany
+    setCompany: setCompany,
+    setRevenues: setRevenues,
+    setHrs: setHrs,
+    setOpexItems: setOpexItems,
+    setAssumptions: setAssumptions
   }), step === 1 && /*#__PURE__*/React.createElement(StepRevenue, {
     revenues: revenues,
     setRevenues: setRevenues,
@@ -4106,7 +4890,13 @@ function App() {
   }), step === 7 && /*#__PURE__*/React.createElement(StepResults, {
     financials: financials,
     company: company,
-    assumptions: assumptions
+    assumptions: assumptions,
+    revenues: revenues,
+    hrs: hrs,
+    opexItems: opexItems,
+    investments: investments,
+    savedScenarios: savedScenarios,
+    onSaveScenario: (s) => setSavedScenarios(prev => [...prev, s])
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",

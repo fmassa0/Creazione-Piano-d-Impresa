@@ -970,20 +970,21 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
   // Company
   if (data.capitaleSociale) setCompany(c => ({ ...c, capitaleSociale: data.capitaleSociale }));
   
-  // Revenue lines — try to break down if we have detail
+  // Revenue lines — use unitPrice=1 and volumes=total so growth rates work properly
   const ricavi = data.ricavi || 0;
   if (ricavi > 0) {
     // Estimate COGS from the difference: ricavi - margine lordo
-    // Margine lordo approssimato: ricavi - (materiePrime + cogs diretti)
     const cogsEstimate = data.cogs || data.materiePrime || 0;
     const margin = ricavi > 0 ? Math.max(0.10, Math.min(0.95, 1 - (cogsEstimate / ricavi))) : 0.40;
     
+    // Use unitPrice=1 so volumes represent actual euros, enabling growth rate auto-calc
+    // Set only year 1 volume, leave rest as 0 so growthRates kick in
     setRevenues([{
       ...DEFAULTS.revenueLine(),
       name: "Ricavi vendite e prestazioni (da bilancio)",
       type: "service",
-      unitPrice: ricavi,
-      volumes: [1, 1, 1, 1, 1],
+      unitPrice: 1,
+      volumes: [ricavi, 0, 0, 0, 0],
       growthRates: [0, 0.08, 0.08, 0.06, 0.06],
       grossMargin: margin
     }]);

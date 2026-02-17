@@ -1692,7 +1692,113 @@ function StepRevenue({
   }))))))), /*#__PURE__*/React.createElement(Btn, {
     primary: true,
     onClick: add
-  }, "+ Aggiungi Linea di Ricavo"));
+  }, "+ Aggiungi Linea di Ricavo"), lines.some(l => l.unitPrice > 0) && /*#__PURE__*/React.createElement(Card, {
+    title: "\uD83D\uDCCA Riepilogo Ricavi per Anno"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px repeat(${n},1fr) 1fr`,
+      gap: 4,
+      padding: "6px 0",
+      borderBottom: "2px solid #1e3a5f"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...css.label
+    }
+  }, "Linea"), YL.slice(0, n).map((y, j) => /*#__PURE__*/React.createElement("span", {
+    key: j,
+    style: {
+      ...css.label,
+      textAlign: "right"
+    }
+  }, y)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...css.label,
+      textAlign: "right"
+    }
+  }, "Media")), lines.filter(l => l.unitPrice > 0).map((l, i) => {
+    const revs = YEARS.slice(0, n).map((_, j) => {
+      let v = l.volumes[j];
+      if (!v && j > 0) {
+        let prev = l.volumes[0];
+        for (let k = 1; k <= j; k++) prev = Math.round(prev * (1 + (l.growthRates ? l.growthRates[k] : 0.05)));
+        v = prev;
+      }
+      return v * l.unitPrice;
+    });
+    const avg = revs.reduce((s, v) => s + v, 0) / n;
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: "grid",
+        gridTemplateColumns: `180px repeat(${n},1fr) 1fr`,
+        gap: 4,
+        padding: "5px 0",
+        borderBottom: "1px solid #f3f4f6"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "#374151",
+        fontWeight: 500
+      }
+    }, l.name || `Linea ${i + 1}`, /*#__PURE__*/React.createElement(Badge, {
+      color: "#2563eb"
+    }, l.type === "product" ? "Prod." : l.type === "service" ? "Serv." : "Abb.")), revs.map((v, j) => /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        color: "#059669"
+      }
+    }, fmt(v))), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        color: "#6b7280",
+        fontStyle: "italic"
+      }
+    }, fmt(avg)));
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px repeat(${n},1fr) 1fr`,
+      gap: 4,
+      padding: "6px 0",
+      borderTop: "2px solid #1e3a5f",
+      fontWeight: 700
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12
+    }
+  }, "TOTALE RICAVI"), YEARS.slice(0, n).map((_, j) => {
+    const tot = lines.reduce((s, l) => {
+      let v = l.volumes[j];
+      if (!v && j > 0) {
+        let prev = l.volumes[0];
+        for (let k = 1; k <= j; k++) prev = Math.round(prev * (1 + (l.growthRates ? l.growthRates[k] : 0.05)));
+        v = prev;
+      }
+      return s + v * l.unitPrice;
+    }, 0);
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        color: "#059669"
+      }
+    }, fmt(tot));
+  }), /*#__PURE__*/React.createElement("span", null)))));
 }
 function StepProduction({
   revenues,
@@ -2018,7 +2124,179 @@ function StepHR({
   }))))))), /*#__PURE__*/React.createElement(Btn, {
     primary: true,
     onClick: add
-  }, "+ Aggiungi Risorsa"));
+  }, "+ Aggiungi Risorsa"), hrs.some(h => h.annualCost > 0) && /*#__PURE__*/React.createElement(Card, {
+    title: "\uD83D\uDCCA Riepilogo Costi Personale per Anno"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "6px 0",
+      borderBottom: "2px solid #1e3a5f"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...css.label
+    }
+  }, "Ruolo"), YL.slice(0, n).map((y, j) => /*#__PURE__*/React.createElement("span", {
+    key: j,
+    style: {
+      ...css.label,
+      textAlign: "right"
+    }
+  }, y))), hrs.filter(h => h.annualCost > 0).map((h, i) => /*#__PURE__*/React.createElement("div", {
+    key: i
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "5px 0",
+      borderBottom: "1px solid #f3f4f6"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "#374151",
+      fontWeight: 500
+    }
+  }, h.role || `Risorsa ${i + 1}`, /*#__PURE__*/React.createElement(Badge, {
+    color: h.type === "direct" ? "#059669" : "#6366f1"
+  }, h.type === "direct" ? "Dir." : "Indir.")), YEARS.slice(0, n).map((_, j) => {
+    const cost = h.annualCost * (h.count[j] || 0) * Math.pow(1 + h.growthRate, j);
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        color: "#dc2626"
+      }
+    }, fmt(cost));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "2px 0 5px",
+      borderBottom: "1px solid #f9fafb"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "#9ca3af",
+      paddingLeft: 8
+    }
+  }, "\xD7 ", "{", "n\xB0 persone", "}"), YEARS.slice(0, n).map((_, j) => /*#__PURE__*/React.createElement("span", {
+    key: j,
+    style: {
+      fontSize: 10,
+      fontFamily: "'JetBrains Mono',monospace",
+      textAlign: "right",
+      color: "#9ca3af"
+    }
+  }, h.count[j] || 0, " pers. \xD7 ", fmt(Math.round(h.annualCost * Math.pow(1 + h.growthRate, j))), "/cad"))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "6px 0",
+      borderTop: "2px solid #1e3a5f",
+      fontWeight: 700
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12
+    }
+  }, "TOTALE PERSONALE"), YEARS.slice(0, n).map((_, j) => {
+    const tot = hrs.reduce((s, h) => s + h.annualCost * (h.count[j] || 0) * Math.pow(1 + h.growthRate, j), 0);
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        color: "#dc2626"
+      }
+    }, fmt(tot));
+  })), hrs.some(h => h.type === "direct") && hrs.some(h => h.type === "indirect") && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "4px 0"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "#059669"
+    }
+  }, "  di cui Diretti"), YEARS.slice(0, n).map((_, j) => {
+    const tot = hrs.filter(h => h.type === "direct").reduce((s, h) => s + h.annualCost * (h.count[j] || 0) * Math.pow(1 + h.growthRate, j), 0);
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 11,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        color: "#059669"
+      }
+    }, fmt(tot));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "4px 0"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "#6366f1"
+    }
+  }, "  di cui Indiretti"), YEARS.slice(0, n).map((_, j) => {
+    const tot = hrs.filter(h => h.type === "indirect").reduce((s, h) => s + h.annualCost * (h.count[j] || 0) * Math.pow(1 + h.growthRate, j), 0);
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 11,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        color: "#6366f1"
+      }
+    }, fmt(tot));
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "6px 0",
+      marginTop: 8,
+      borderTop: "1px solid #e5e7eb"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      fontWeight: 600,
+      color: "#374151"
+    }
+  }, "ORGANICO TOTALE"), YEARS.slice(0, n).map((_, j) => {
+    const tot = hrs.reduce((s, h) => s + (h.count[j] || 0), 0);
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        fontWeight: 700,
+        color: "#374151"
+      }
+    }, tot, " persone");
+  })))));
 }
 function StepOpEx({
   opexItems: items,
@@ -2160,7 +2438,135 @@ function StepOpEx({
   }))))), /*#__PURE__*/React.createElement(Btn, {
     primary: true,
     onClick: add
-  }, "+ Aggiungi Costo Operativo"));
+  }, "+ Aggiungi Costo Operativo"), items.some(o => o.values[0] > 0 || o.isPercentOfRevenue) && /*#__PURE__*/React.createElement(Card, {
+    title: "\uD83D\uDCCA Riepilogo Costi Operativi per Anno"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px 80px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "6px 0",
+      borderBottom: "2px solid #1e3a5f"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...css.label
+    }
+  }, "Voce"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...css.label,
+      textAlign: "center"
+    }
+  }, "Metodo"), YL.slice(0, n).map((y, j) => /*#__PURE__*/React.createElement("span", {
+    key: j,
+    style: {
+      ...css.label,
+      textAlign: "right"
+    }
+  }, y))), items.filter(o => o.values[0] > 0 || o.isPercentOfRevenue).map((o, i) => {
+    const vals = YEARS.slice(0, n).map((_, j) => {
+      if (o.isPercentOfRevenue) return null; // can't calc without revenues
+      if (o.values[j] > 0) return o.values[j];
+      let base = 0,
+        baseYear = 0;
+      for (let k = j - 1; k >= 0; k--) {
+        if (o.values[k] > 0) {
+          base = o.values[k];
+          baseYear = k;
+          break;
+        }
+      }
+      return base > 0 ? base * Math.pow(1 + o.growthRate, j - baseYear) : 0;
+    });
+    const catLabel = {
+      general: "Gen.",
+      rent: "Affitto",
+      marketing: "Mktg",
+      utilities: "Utenze",
+      insurance: "Assic.",
+      other: "Altro"
+    }[o.category] || "";
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: "grid",
+        gridTemplateColumns: `180px 80px repeat(${n},1fr)`,
+        gap: 4,
+        padding: "5px 0",
+        borderBottom: "1px solid #f3f4f6"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "#374151",
+        fontWeight: 500
+      }
+    }, o.name || `Costo ${i + 1}`, /*#__PURE__*/React.createElement(Badge, {
+      color: "#d97706"
+    }, catLabel)), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "#6b7280",
+        textAlign: "center"
+      }
+    }, o.isPercentOfRevenue ? `${(o.percentOfRevenue * 100).toFixed(1)}% ric.` : `Fisso +${Math.round(o.growthRate * 100)}%`), vals.map((v, j) => /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        color: v != null ? "#dc2626" : "#9ca3af"
+      }
+    }, v != null ? fmt(Math.round(v)) : "% ric.")));
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `180px 80px repeat(${n},1fr)`,
+      gap: 4,
+      padding: "6px 0",
+      borderTop: "2px solid #1e3a5f",
+      fontWeight: 700
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12
+    }
+  }, "TOTALE COSTI OP."), /*#__PURE__*/React.createElement("span", null), YEARS.slice(0, n).map((_, j) => {
+    const tot = items.reduce((s, o) => {
+      if (o.isPercentOfRevenue) return s; // skip % items (need revenue context)
+      if (o.values[j] > 0) return s + o.values[j];
+      let base = 0,
+        baseYear = 0;
+      for (let k = j - 1; k >= 0; k--) {
+        if (o.values[k] > 0) {
+          base = o.values[k];
+          baseYear = k;
+          break;
+        }
+      }
+      return base > 0 ? s + base * Math.pow(1 + o.growthRate, j - baseYear) : s;
+    }, 0);
+    return /*#__PURE__*/React.createElement("span", {
+      key: j,
+      style: {
+        fontSize: 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        textAlign: "right",
+        color: "#dc2626"
+      }
+    }, fmt(Math.round(tot)));
+  })), items.some(o => o.isPercentOfRevenue) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "4px 0",
+      fontSize: 10,
+      color: "#9ca3af",
+      fontStyle: "italic"
+    }
+  }, "* Le voci \"% sui ricavi\" saranno calcolate nei Risultati in base ai ricavi effettivi."))));
 }
 function StepInvestments({
   investments: invs,

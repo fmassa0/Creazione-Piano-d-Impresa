@@ -38,7 +38,11 @@ const {
    CONSTANTS
    ═══════════════════════════════════════════════════════════ */
 const YEARS = [0, 1, 2, 3, 4];
-const YL = ["Anno 1", "Anno 2", "Anno 3", "Anno 4", "Anno 5"];
+let YL = ["Anno 1", "Anno 2", "Anno 3", "Anno 4", "Anno 5"];
+function updateYL(company) {
+  const sy = company && company.startYear ? company.startYear : new Date().getFullYear();
+  YL[0] = String(sy); YL[1] = String(sy+1); YL[2] = String(sy+2); YL[3] = String(sy+3); YL[4] = String(sy+4);
+}
 const STEPS = [{
   id: 0,
   label: "Azienda",
@@ -247,6 +251,7 @@ const fmtEur = (v, d = 0) => {
    CALCULATION ENGINE (verified with unit tests)
    ═══════════════════════════════════════════════════════════ */
 function computeFinancials(company, revenues, hrs, opexItems, investments, assumptions) {
+  updateYL(company);
   const n = company.yearsCount;
   const sm = assumptions.scenarioMultiplier[company.scenario] || 1;
   const revenueByLine = revenues.map(line => {
@@ -1273,6 +1278,35 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
     }
     
     return newA;
+  });
+  
+  // V3: Populate bilpianoAnno0 from parsed bilancio
+  setCompany(c => {
+    const bil = BILANCIO_TEMPLATE();
+    bil.ricavi = data.ricavi || 0;
+    bil.costiEsterni = (data.materiePrime || 0) + (data.costiServizi || 0) + (data.godimentoBeni || 0) + (data.oneriDiversi || 0);
+    bil.valoreAggiunto = bil.ricavi - bil.costiEsterni;
+    bil.personale = data.personale || 0;
+    bil.ebitda = data.ebitda || 0;
+    bil.ammortamenti = data.ammortamenti || ((data.ammortamentiImmateriali || 0) + (data.ammortamentiMateriali || 0));
+    bil.ebit = (data.margineOperativo || (bil.ebitda - bil.ammortamenti)) || 0;
+    bil.interessiPassivi = data.interessiPassivi || 0;
+    bil.risultatoPrimaImposte = data.risultatoPrimaImposte || 0;
+    bil.imposte = data.imposte || 0;
+    bil.utileNetto = data.utileNetto || 0;
+    bil.immobilizzazioniNette = (data.immobilizzazioniImmateriali || 0) + (data.immobilizzazioniMateriali || 0);
+    bil.creditiCommerciali = data.creditiCommerciali || data.creditiTotali || 0;
+    bil.rimanenze = data.rimanenze || 0;
+    bil.cassa = data.cassa || 0;
+    bil.capitaleSociale = data.capitaleSociale || 0;
+    bil.patrimonioNetto = data.patrimonioNetto || 0;
+    bil.debitiFinanziari = data.debitiFinanziari || 0;
+    bil.debitiCommerciali = data.debitiCommerciali || 0;
+    bil.tfr = data.tfr || 0;
+    bil.dipendenti = data.dipendenti || 0;
+    bil.annoRiferimento = c.startYear ? c.startYear - 1 : new Date().getFullYear() - 1;
+    bil.fonte = "pdf_import";
+    return { ...c, bilpianoAnno0: bil, companyType: c.companyType === "nuova_impresa" ? "existing" : c.companyType };
   });
   
   return data;
@@ -5388,6 +5422,7 @@ function App() {
   const [assumptions, setAssumptions] = useState(DEFAULTS.assumptions);
   const [savedScenarios, setSavedScenarios] = useState([]);
   const fileRef = useRef(null);
+  updateYL(company);
   const financials = useMemo(() => computeFinancials(company, revenues, hrs, opexItems, investments, assumptions), [company, revenues, hrs, opexItems, investments, assumptions]);
   const exportJSON = () => {
     const data = {

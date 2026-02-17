@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Piano Economico — Generatore Business Plan</title>
+<title>Piano Economico â€” Generatore Business Plan</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -34,166 +34,79 @@ const {
   useRef
 } = React;
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    CONSTANTS
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const YEARS = [0, 1, 2, 3, 4];
-const eY = () => [0, 0, 0, 0, 0];
-const eY1 = () => [1, 1, 1, 1, 1];
-
-// Year labels: dynamic based on startYear. Used throughout the app.
-// In components, prefer getYL(company) for accurate labels.
-let YL = ["Anno 1", "Anno 2", "Anno 3", "Anno 4", "Anno 5"]; // fallback
-function getYL(company) {
-  const sy = company?.startYear || new Date().getFullYear();
-  return [String(sy), String(sy+1), String(sy+2), String(sy+3), String(sy+4)];
-}
-function updateYL(company) { YL = getYL(company); }
-
-// Dynamic year labels based on startYear and company type
-function getYearLabels(company) {
-  const sy = company.startYear || new Date().getFullYear();
-  const isExisting = company.companyType === "existing" || company.companyType === "crisis";
-  const hasBilancio = company.bilpianoAnno0 && company.bilpianoAnno0.ricavi > 0;
-  const labels = [];
-  for (let i = 0; i < 5; i++) labels.push(String(sy + i));
-  // Build full labels array including historical
-  const result = { forecast: labels, full: [] };
-  if (isExisting && hasBilancio) {
-    if (company.bilpianoAnnoM1 && company.bilpianoAnnoM1.ricavi > 0) {
-      result.full.push({ year: sy - 2, label: String(sy - 2), type: "storico" });
-    }
-    result.full.push({ year: sy - 1, label: String(sy - 1), type: "consuntivo" }); // Anno 0
-  }
-  for (let i = 0; i < 5; i++) {
-    result.full.push({ year: sy + i, label: String(sy + i), type: "previsionale" });
-  }
-  return result;
-}
-
+const YL = ["Anno 1", "Anno 2", "Anno 3", "Anno 4", "Anno 5"];
 const STEPS = [{
   id: 0,
   label: "Azienda",
-  icon: "\uD83C\uDFE2",
-  desc: "Tipo impresa e scenario"
+  icon: "ðŸ¢",
+  desc: "Info generali e scenario"
 }, {
   id: 1,
   label: "Ricavi",
-  icon: "\uD83D\uDCC8",
+  icon: "ðŸ“ˆ",
   desc: "Linee di prodotto/servizio"
 }, {
   id: 2,
   label: "Produzione",
-  icon: "\uD83C\uDFED",
+  icon: "ðŸ­",
   desc: "Costi diretti e margini"
 }, {
   id: 3,
   label: "Personale",
-  icon: "\uD83D\uDC65",
+  icon: "ðŸ‘¥",
   desc: "Organico e costi HR"
 }, {
   id: 4,
   label: "Costi Op.",
-  icon: "\uD83D\uDCBC",
+  icon: "ðŸ’¼",
   desc: "Affitti, utenze, marketing"
 }, {
   id: 5,
   label: "Investimenti",
-  icon: "\uD83D\uDD27",
+  icon: "ðŸ”§",
   desc: "CapEx e ammortamenti"
 }, {
   id: 6,
-  label: "Finanziamenti",
-  icon: "\uD83C\uDFE6",
-  desc: "Debito, equity, agevolazioni"
+  label: "Ipotesi",
+  icon: "âš™ï¸",
+  desc: "FiscalitÃ , WC, debito"
 }, {
   id: 7,
   label: "Risultati",
-  icon: "\uD83D\uDCCA",
+  icon: "ðŸ“Š",
   desc: "CE, SP, CF, KPI"
 }];
-
-// ══════ SECTOR TEMPLATES & BENCHMARKS ══════
-const SECTOR_TEMPLATES = {
-  "tech_software": { label: "Software / SaaS / IT", grossMargin: 0.72, dso: 45, dpo: 30, dio: 0, hrOnRevenue: 0.50, ebitdaMargin: 0.18, debtEquity: 0.8 },
-  "manifattura": { label: "Manifattura / Industria", grossMargin: 0.32, dso: 75, dpo: 60, dio: 45, hrOnRevenue: 0.25, ebitdaMargin: 0.11, debtEquity: 1.5 },
-  "commercio_ingrosso": { label: "Commercio all'ingrosso", grossMargin: 0.22, dso: 60, dpo: 45, dio: 30, hrOnRevenue: 0.12, ebitdaMargin: 0.06, debtEquity: 1.8 },
-  "commercio_dettaglio": { label: "Commercio al dettaglio", grossMargin: 0.42, dso: 5, dpo: 45, dio: 30, hrOnRevenue: 0.22, ebitdaMargin: 0.08, debtEquity: 1.2 },
-  "ristorazione": { label: "Ristorazione / Food", grossMargin: 0.65, dso: 5, dpo: 30, dio: 10, hrOnRevenue: 0.35, ebitdaMargin: 0.12, debtEquity: 1.0 },
-  "edilizia": { label: "Edilizia / Costruzioni", grossMargin: 0.28, dso: 90, dpo: 90, dio: 20, hrOnRevenue: 0.30, ebitdaMargin: 0.08, debtEquity: 2.0 },
-  "consulenza": { label: "Consulenza / Servizi prof.", grossMargin: 0.80, dso: 60, dpo: 20, dio: 0, hrOnRevenue: 0.60, ebitdaMargin: 0.15, debtEquity: 0.5 },
-  "turismo": { label: "Turismo / Ospitalit\u00E0", grossMargin: 0.55, dso: 15, dpo: 30, dio: 5, hrOnRevenue: 0.35, ebitdaMargin: 0.15, debtEquity: 1.5 },
-  "agricoltura": { label: "Agricoltura / Agroalimentare", grossMargin: 0.35, dso: 60, dpo: 45, dio: 60, hrOnRevenue: 0.20, ebitdaMargin: 0.10, debtEquity: 1.8 },
-  "sanita": { label: "Sanit\u00E0 / Servizi alla persona", grossMargin: 0.50, dso: 90, dpo: 30, dio: 5, hrOnRevenue: 0.55, ebitdaMargin: 0.10, debtEquity: 1.0 },
-  "logistica": { label: "Logistica / Trasporti", grossMargin: 0.30, dso: 60, dpo: 45, dio: 5, hrOnRevenue: 0.35, ebitdaMargin: 0.08, debtEquity: 2.0 },
-  "energia": { label: "Energia / Utilities", grossMargin: 0.25, dso: 45, dpo: 30, dio: 10, hrOnRevenue: 0.15, ebitdaMargin: 0.20, debtEquity: 2.5 },
-  "altro": { label: "Altro settore", grossMargin: 0.40, dso: 45, dpo: 45, dio: 15, hrOnRevenue: 0.30, ebitdaMargin: 0.10, debtEquity: 1.5 }
-};
-
-const COMPANY_TYPES = [
-  { value: "startup_innovativa", label: "\uD83D\uDE80 Startup Innovativa (iscritta registro speciale)", desc: "Nessun bilancio storico. Attiva metriche burn rate, runway, MRR." },
-  { value: "nuova_impresa", label: "\uD83C\uDF31 Nuova Impresa (prima attivit\u00E0)", desc: "Nessun bilancio precedente. Il piano parte dall\u2019anno di costituzione." },
-  { value: "existing", label: "\uD83C\uDFE2 Azienda Esistente (con bilanci depositati)", desc: "Carica 1 o 2 bilanci. L\u2019ultimo diventa Anno 0 (consuntivo)." },
-  { value: "crisis", label: "\u26A0\uFE0F Azienda in Ristrutturazione", desc: "Piano di risanamento. Carica bilancio e indica il turning point." }
-];
-
-// ══════ BILANCIO TEMPLATE (CE + SP completo per Anno 0/Anno -1) ══════
-const BILANCIO_TEMPLATE = () => ({
-  // CE
-  ricavi: 0, altriRicavi: 0, valoreProduzione: 0,
-  materiePrime: 0, costiServizi: 0, godimentoBeni: 0, oneriDiversi: 0,
-  costiEsterni: 0, // = materiePrime + costiServizi + godimentoBeni + oneriDiversi
-  valoreAggiunto: 0, // = valoreProduzione - costiEsterni
-  personale: 0,
-  ebitda: 0, // MOL = valoreAggiunto - personale
-  ammortamenti: 0,
-  ebit: 0, // = ebitda - ammortamenti
-  interessiPassivi: 0,
-  risultatoPrimaImposte: 0,
-  imposte: 0,
-  utileNetto: 0,
-  // SP Attivo
-  immobilizzazioniNette: 0,
-  creditiCommerciali: 0,
-  rimanenze: 0,
-  cassa: 0,
-  altroAttivo: 0,
-  totaleAttivo: 0,
-  // SP Passivo
-  capitaleSociale: 0,
-  riserve: 0,
-  patrimonioNetto: 0,
-  debitiFinanziari: 0,
-  debitiCommerciali: 0,
-  tfr: 0,
-  altroPassivo: 0,
-  totalePassivo: 0,
-  // Extra
-  dipendenti: 0,
-  annoRiferimento: 0,
-  fonte: "" // "import_pdf", "import_excel", "manuale"
-});
-
+const eY = () => [0, 0, 0, 0, 0];
+const eY1 = () => [1, 1, 1, 1, 1];
 const DEFAULTS = {
   company: {
     name: "",
-    sector: "altro",
-    sectorTemplate: "altro",
+    sector: "",
     currency: "EUR",
     yearsCount: 3,
     scenario: "base",
     capitaleSociale: 10000,
-    companyType: "nuova_impresa",  // startup_innovativa, nuova_impresa, existing, crisis
-    startYear: new Date().getFullYear(),
-    noteAzienda: "",
+    isExisting: false,
+    noteAzienda: "",       // #1 Nota metodologica
     noteRicavi: "",
     notePersonale: "",
     noteCosti: "",
     noteInvestimenti: "",
     noteIpotesi: "",
-    // Bilanci storici (Anno 0 = ultimo consuntivo, Anno -1 = penultimo)
-    bilpianoAnno0: null,   // BILANCIO_TEMPLATE or null
-    bilpianoAnnoM1: null,  // BILANCIO_TEMPLATE or null
+    // #8 Storico - dati bilancio anno -1 e -2
+    storico: {
+      hasStorico: false,
+      ricaviM1: 0, ricaviM2: 0,
+      ebitdaM1: 0, ebitdaM2: 0,
+      utileM1: 0, utileM2: 0,
+      pnM1: 0, pnM2: 0,
+      cassaM1: 0, cassaM2: 0,
+      debitoFinM1: 0, debitoFinM2: 0
+    }
   },
   revenueLine: () => ({
     name: "",
@@ -209,8 +122,8 @@ const DEFAULTS = {
     annualCost: 0,
     count: eY1(),
     growthRate: 0.03,
-    annualIncrement: 0.025,
-    turnoverRate: 0
+    annualIncrement: 0.025, // #7 Scatto annuo CCNL
+    turnoverRate: 0         // #7 % turnover (costo sostituzione)
   }),
   opex: () => ({
     name: "",
@@ -226,22 +139,10 @@ const DEFAULTS = {
     cost: 0,
     usefulLife: 5,
     year: 0,
-    categoriaAgevolativa: "none",
+    // #2 Mapping bandi agevolativi
+    categoriaAgevolativa: "none",  // none, macchinari40, software, brevetti, consulenze, formazione, rnd, impiantistica, altro
     percentualeAgevolazione: 0,
     isEleggibile: true
-  }),
-  // Multi-finanziamento
-  loan: () => ({
-    name: "Finanziamento",
-    type: "mutuo",       // mutuo, agevolato, leasing, linea_credito
-    amount: 0,
-    rate: 0.04,
-    duration: 5,         // anni
-    preammortamento: 0,  // mesi
-    startYear: 0,        // indice anno (0=Anno1, 1=Anno2...)
-    method: "francese",  // francese, italiano, bullet
-    isAgevolato: false,
-    contributoFP: 0,     // % fondo perduto abbinato
   }),
   assumptions: {
     vatRate: .22,
@@ -250,22 +151,20 @@ const DEFAULTS = {
     dso: 30,
     dpo: 60,
     dio: 30,
-    tfrRate: 0.0741,
-    taxCreditAmount: 0,
-    taxCreditYears: 3,
-    includeVATinCF: false,
+    interestRate: .04,
+    debtAmount: eY(),
+    debtRepayment: eY(),
     equityInjection: eY(),
     dividendPayout: 0,
     grantAmount: 0,
     grantYears: 5,
-    // Legacy single-debt fields (kept for backward compatibility)
-    interestRate: .04,
-    debtAmount: eY(),
-    debtRepayment: eY(),
+    tfrRate: 0.0741,
+    taxCreditAmount: 0,
+    taxCreditYears: 3,
     debtType: "manual",
     debtDuration: 5,
-    preammortamento: 0,
-    // Opening balances (auto-populated from bilpianoAnno0)
+    preammortamento: 0,   // #4 Mesi di preammortamento (grazia)
+    includeVATinCF: false, // #3 Toggle IVA nel Cash Flow
     openingCash: 0,
     openingDebt: 0,
     openingEquity: 0,
@@ -283,7 +182,7 @@ const DEFAULTS = {
     }
   }
 };
-
+// #2 Categorie agevolative per investimenti
 const CATEGORIE_AGEVOLATIVE = [
   { value: "none", label: "Nessuna agevolazione" },
   { value: "macchinari40", label: "Macchinari 4.0 (Transizione 5.0)" },
@@ -296,25 +195,11 @@ const CATEGORIE_AGEVOLATIVE = [
   { value: "altro", label: "Altra spesa ammissibile" }
 ];
 
-// Utility: compute step validation status
-function getStepValidation(step, company, revenues, hrs, opexItems, investments, loans) {
-  switch(step) {
-    case 0: return company.name && company.companyType ? "ok" : company.companyType ? "partial" : "empty";
-    case 1: return revenues.some(r => r.unitPrice > 0 && r.volumes.some(v => v > 0)) ? "ok" : revenues.some(r => r.name) ? "partial" : "empty";
-    case 2: return revenues.some(r => r.grossMargin > 0) ? "ok" : "empty";
-    case 3: return hrs.some(h => h.annualCost > 0) ? "ok" : hrs.some(h => h.role) ? "partial" : "empty";
-    case 4: return opexItems.some(o => o.values.some(v => v > 0) || o.isPercentOfRevenue) ? "ok" : opexItems.some(o => o.name) ? "partial" : "empty";
-    case 5: return investments.some(i => i.cost > 0) ? "ok" : "empty";
-    case 6: return "ok"; // assumptions always have defaults
-    default: return "ok";
-  }
-}
-
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    FORMATTING UTILS
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const fmt = (v, d = 0) => {
-  if (v == null || isNaN(v)) return "—";
+  if (v == null || isNaN(v)) return "â€”";
   const a = Math.abs(v);
   const f = a.toLocaleString("it-IT", {
     minimumFractionDigits: d,
@@ -323,17 +208,17 @@ const fmt = (v, d = 0) => {
   return v < 0 ? `(${f})` : f;
 };
 const fmtPct = v => {
-  if (v == null || isNaN(v)) return "—";
+  if (v == null || isNaN(v)) return "â€”";
   return (v * 100).toFixed(1) + "%";
 };
 const fmtEur = (v, d = 0) => {
-  if (v == null || isNaN(v)) return "—";
-  return "€ " + fmt(v, d);
+  if (v == null || isNaN(v)) return "â€”";
+  return "â‚¬ " + fmt(v, d);
 };
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    CALCULATION ENGINE (verified with unit tests)
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function computeFinancials(company, revenues, hrs, opexItems, investments, assumptions) {
   const n = company.yearsCount;
   const sm = assumptions.scenarioMultiplier[company.scenario] || 1;
@@ -427,7 +312,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const totalTax = YEARS.map((_, i) => Math.max(0, totalTaxGross[i] - taxCreditUsed[i]));
   const netIncome = YEARS.map((_, i) => ebt[i] - totalTax[i]);
 
-  // TFR: già incluso in hrCosts, ma deve apparire come passività BS
+  // TFR: giÃ  incluso in hrCosts, ma deve apparire come passivitÃ  BS
   const tfrShare = (assumptions.tfrRate || 0.0741) / (1 + (assumptions.tfrRate || 0.0741));
   const tfrAccrual = YEARS.map((_, i) => hrCosts[i] * tfrShare);
   const cumTFR = YEARS.map((_, i) => (assumptions.openingTFR || 0) + tfrAccrual.slice(0, i + 1).reduce((s, t) => s + t, 0));
@@ -506,13 +391,13 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const revPerEmp = YEARS.map((_, i) => headcount[i] ? totalRevenue[i] / headcount[i] : 0);
   const revenueCAGR = n > 1 && totalRevenue[0] > 0 ? Math.pow(totalRevenue[n - 1] / totalRevenue[0], 1 / (n - 1)) - 1 : 0;
 
-  /* ═══ KPI AVANZATI (richiesti da banche e investitori) ═══ */
+  /* â”€â”€â”€ KPI AVANZATI (richiesti da banche e investitori) â”€â”€â”€ */
 
-  // DSCR = EBITDA / (Interessi + Quota capitale) — la banca lo vuole > 1.2
+  // DSCR = EBITDA / (Interessi + Quota capitale) â€” la banca lo vuole > 1.2
   const debtService = YEARS.map((_, i) => interest[i] + (assumptions.debtRepayment[i] || 0));
   const dscr = YEARS.map((_, i) => debtService[i] > 0 ? ebitda[i] / debtService[i] : null);
 
-  // Interest Coverage Ratio = EBIT / Interessi — misura capacità di coprire gli oneri finanziari
+  // Interest Coverage Ratio = EBIT / Interessi â€” misura capacitÃ  di coprire gli oneri finanziari
   const icr = YEARS.map((_, i) => interest[i] > 0 ? ebit[i] / interest[i] : null);
 
   // PFN = Posizione Finanziaria Netta = Cassa - Debito finanziario (negativo = indebitamento netto)
@@ -521,7 +406,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   // Debt/Equity ratio = Debito finanziario / Patrimonio netto
   const debtEquity = YEARS.map((_, i) => equity[i] > 0 ? netDebt[i] / equity[i] : null);
 
-  // Break-Even Point (€) = Costi Fissi / Margine lordo %
+  // Break-Even Point (â‚¬) = Costi Fissi / Margine lordo %
   const fixedCosts = YEARS.map((_, i) => hrCosts[i] + opexCosts[i] + depreciation[i] + interest[i]);
   const bep = YEARS.map((_, i) => grossMarginPct[i] > 0 ? fixedCosts[i] / grossMarginPct[i] : null);
   const bepMargin = YEARS.map((_, i) => bep[i] != null && totalRevenue[i] > 0 ? (totalRevenue[i] - bep[i]) / totalRevenue[i] : null);
@@ -539,7 +424,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   // Costo del personale / Ricavi (incidenza)
   const hrOnRevenue = YEARS.map((_, i) => totalRevenue[i] > 0 ? hrCosts[i] / totalRevenue[i] : 0);
 
-  // ROI = EBIT / Totale Attivo — rendimento del capitale investito
+  // ROI = EBIT / Totale Attivo â€” rendimento del capitale investito
   const roi = YEARS.map((_, i) => totalAssets[i] > 0 ? ebit[i] / totalAssets[i] : null);
 
   // Payback Period: anno in cui cumCash diventa positivo
@@ -712,12 +597,12 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     
     // Classe rating
     let grade, gradeColor, gradeDesc;
-    if (score >= 85) { grade = "A"; gradeColor = "#059669"; gradeDesc = "Finanziabile senza riserve —” solidità eccellente"; }
-    else if (score >= 70) { grade = "B+"; gradeColor = "#10b981"; gradeDesc = "Finanziabile —” buon profilo di rischio"; }
-    else if (score >= 55) { grade = "B"; gradeColor = "#d97706"; gradeDesc = "Finanziabile con garanzie —” profilo discreto"; }
-    else if (score >= 40) { grade = "C+"; gradeColor = "#ea580c"; gradeDesc = "Criticità rilevanti —” necessarie garanzie reali o MCC"; }
-    else if (score >= 25) { grade = "C"; gradeColor = "#dc2626"; gradeDesc = "Rischio elevato —” difficilmente finanziabile"; }
-    else { grade = "D"; gradeColor = "#7f1d1d"; gradeDesc = "Non finanziabile —” interventi strutturali necessari"; }
+    if (score >= 85) { grade = "A"; gradeColor = "#059669"; gradeDesc = "Finanziabile senza riserve — solidità eccellente"; }
+    else if (score >= 70) { grade = "B+"; gradeColor = "#10b981"; gradeDesc = "Finanziabile — buon profilo di rischio"; }
+    else if (score >= 55) { grade = "B"; gradeColor = "#d97706"; gradeDesc = "Finanziabile con garanzie — profilo discreto"; }
+    else if (score >= 40) { grade = "C+"; gradeColor = "#ea580c"; gradeDesc = "Criticità rilevanti — necessarie garanzie reali o MCC"; }
+    else if (score >= 25) { grade = "C"; gradeColor = "#dc2626"; gradeDesc = "Rischio elevato — difficilmente finanziabile"; }
+    else { grade = "D"; gradeColor = "#7f1d1d"; gradeDesc = "Non finanziabile — interventi strutturali necessari"; }
     
     return { score, maxScore: 100, grade, gradeColor, gradeDesc, details };
   };
@@ -801,89 +686,14 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     spBalanceCheck,
     fontiImpieghi,
     pianoAgevolazioni,
-    rating,
-    
-    // ══ V3: CE RICLASSIFICATO A VALORE AGGIUNTO ══
-    ceRiclass: YEARS.map((_, i) => ({
-      valoreProduzione: totalRevenue[i] + (grantIncome[i] || 0),
-      costiEsterni: totalCOGS[i] + opexCosts[i],
-      valoreAggiunto: totalRevenue[i] + (grantIncome[i] || 0) - totalCOGS[i] - opexCosts[i],
-      costoPersonale: hrCosts[i],
-      mol: totalRevenue[i] + (grantIncome[i] || 0) - totalCOGS[i] - opexCosts[i] - hrCosts[i], // MOL = EBITDA
-      ammortamenti: depreciation[i],
-      risultatoOperativo: ebit[i],
-      oneriFin: interest[i],
-      risultatoAnteImposte: ebt[i],
-      imposte: totalTax[i],
-      risultatoNetto: netIncome[i]
-    })),
-    
-    // ══ V3: SP RICLASSIFICATO (criterio finanziario) ══
-    spRiclass: YEARS.map((_, i) => ({
-      // Attivo
-      attivoFisso: netFA[i],
-      creditiComm: ar[i],
-      rimanenze: inventory[i],
-      liquidita: Math.max(0, cash[i]),
-      attivoCircolante: ar[i] + inventory[i] + Math.max(0, cash[i]),
-      totaleAttivo: totalAssets[i],
-      // Passivo
-      debitiComm: ap[i],
-      debitiTributari: totalTax[i],
-      passivoCorrente: currentLiabilities[i],
-      debitiMLT: netDebt[i],
-      tfrFondo: cumTFR[i],
-      riscontiPassivi: deferredGrant[i],
-      passivoConsolidato: netDebt[i] + cumTFR[i] + deferredGrant[i],
-      patrimonioNetto: equity[i],
-      totalePassivo: currentLiabilities[i] + netDebt[i] + cumTFR[i] + deferredGrant[i] + equity[i],
-      // Derived
-      cin: netFA[i] + ar[i] + inventory[i] - currentLiabilities[i], // Capitale Investito Netto
-      ccn: ar[i] + inventory[i] + Math.max(0, cash[i]) - currentLiabilities[i], // CCN
-    })),
-    
-    // ══ V3: ANNO 0 FROM BILANCIO (if available) ══
-    anno0: company.bilpianoAnno0 || null,
-    annoM1: company.bilpianoAnnoM1 || null,
-    
-    // ══ V3: DELTA % Anno 0 → Anno 1 ══
-    delta0to1: (() => {
-      const b = company.bilpianoAnno0;
-      if (!b || !b.ricavi) return null;
-      const pctChange = (newV, oldV) => oldV > 0 ? (newV - oldV) / oldV : null;
-      return {
-        ricavi: pctChange(totalRevenue[0], b.ricavi),
-        ebitda: pctChange(ebitda[0], b.ebitda),
-        utile: pctChange(netIncome[0], b.utileNetto),
-        personale: pctChange(hrCosts[0], b.personale),
-        pn: pctChange(equity[0], b.patrimonioNetto),
-        warnings: []
-      };
-    })(),
-    
-    // ══ V3: SECTOR BENCHMARKS ══
-    benchmarks: (() => {
-      const tmpl = SECTOR_TEMPLATES[company.sectorTemplate] || SECTOR_TEMPLATES.altro;
-      const last = n - 1;
-      return {
-        sector: tmpl,
-        comparison: [
-          { kpi: "Margine Lordo", actual: grossMarginPct[last], benchmark: tmpl.grossMargin, unit: "pct" },
-          { kpi: "EBITDA Margin", actual: ebitdaMargin[last], benchmark: tmpl.ebitdaMargin, unit: "pct" },
-          { kpi: "Incidenza HR/Ricavi", actual: hrOnRevenue[last], benchmark: tmpl.hrOnRevenue, unit: "pct", invert: true },
-          { kpi: "Debt/Equity", actual: debtEquity[last], benchmark: tmpl.debtEquity, unit: "dec", invert: true },
-          { kpi: "DSO", actual: assumptions.dso, benchmark: tmpl.dso, unit: "gg", invert: true },
-          { kpi: "DPO", actual: assumptions.dpo, benchmark: tmpl.dpo, unit: "gg" }
-        ]
-      };
-    })()
+    rating
   };
 }
-const sanitizeName = s => (s || "azienda").replace(/[^a-zA-Z0-9À-ú_\- ]/g, "").replace(/\s+/g, "_").substring(0, 50);
+const sanitizeName = s => (s || "azienda").replace(/[^a-zA-Z0-9Ã€-Ãº_\- ]/g, "").replace(/\s+/g, "_").substring(0, 50);
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MONTE CARLO SIMULATION
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function runMonteCarlo(company, revenues, hrs, opexItems, investments, assumptions, iterations = 1000) {
   const results = { netIncome: [], ebitda: [], cumCash: [], dscr: [], revenue: [] };
   const n = company.yearsCount;
@@ -896,7 +706,7 @@ function runMonteCarlo(company, revenues, hrs, opexItems, investments, assumptio
       return mean + std * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
     };
     
-    // Perturb revenues: volumes ±25%, prices ±10%
+    // Perturb revenues: volumes Â±25%, prices Â±10%
     const pertRevenues = revenues.map(r => ({
       ...r,
       volumes: r.volumes.map(v => Math.max(0, Math.round(v * randNorm(1, 0.15)))),
@@ -904,13 +714,13 @@ function runMonteCarlo(company, revenues, hrs, opexItems, investments, assumptio
       grossMargin: Math.min(0.99, Math.max(0.01, r.grossMargin + randNorm(0, 0.05)))
     }));
     
-    // Perturb HR costs ±8%
+    // Perturb HR costs Â±8%
     const pertHrs = hrs.map(h => ({
       ...h,
       annualCost: Math.max(0, h.annualCost * randNorm(1, 0.05))
     }));
     
-    // Perturb OpEx ±12%
+    // Perturb OpEx Â±12%
     const pertOpex = opexItems.map(o => ({
       ...o,
       values: o.values.map(v => Math.max(0, v * randNorm(1, 0.08)))
@@ -964,9 +774,9 @@ function runMonteCarlo(company, revenues, hrs, opexItems, investments, assumptio
   };
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    SENSITIVITY ANALYSIS (Tornado)
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function runSensitivity(company, revenues, hrs, opexItems, investments, assumptions) {
   const n = company.yearsCount;
   const last = n - 1;
@@ -1020,15 +830,15 @@ function runSensitivity(company, revenues, hrs, opexItems, investments, assumpti
   }).sort((a, b) => Math.abs(b.ebitda.up - b.ebitda.down) - Math.abs(a.ebitda.up - a.ebitda.down));
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    BILANCIO IMPORT PARSER (PDF + Excel/CSV)
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 // Parse a number from Italian format: "1.551.281" or "1.551.281,00" or "567.515"
 function parseItalianNumber(str) {
   if (!str || typeof str !== "string") return 0;
   // Remove currency symbols, spaces, euro signs
-  let s = str.replace(/[€\s]/g, "").trim();
+  let s = str.replace(/[â‚¬\s]/g, "").trim();
   if (!s || s === "-" || s === "0") return 0;
   // Handle negative: (123) or -123
   const isNeg = s.startsWith("(") || s.startsWith("-");
@@ -1079,7 +889,7 @@ async function extractPdfText(file) {
   return pages;
 }
 
-// Main PDF bilancio parser — looks for specific patterns in the Italian "bilancio abbreviato"
+// Main PDF bilancio parser â€” looks for specific patterns in the Italian "bilancio abbreviato"
 function parseBilancioPdfData(pages) {
   const data = { _raw: {}, _source: "pdf" };
   
@@ -1105,11 +915,11 @@ function parseBilancioPdfData(pages) {
           const cleaned = t.trim();
           if (!cleaned) return;
           // Check if it looks like a number
-          const testNum = cleaned.replace(/[€\s]/g, "");
+          const testNum = cleaned.replace(/[â‚¬\s]/g, "");
           if (/^[-\(]?\d{1,3}([.\s]\d{3})*(,\d+)?\)?$/.test(testNum) || /^[-\(]?\d+\)?$/.test(testNum)) {
             nums.push(parseItalianNumber(cleaned));
           } else if (/^\d+$/.test(testNum) && parseInt(testNum) > 1900 && parseInt(testNum) < 2100) {
-            // Year — skip
+            // Year â€” skip
           } else {
             labelParts.push(cleaned);
           }
@@ -1129,7 +939,7 @@ function parseBilancioPdfData(pages) {
         sorted.forEach(item => {
           const t = item.text.trim();
           if (!t) return;
-          const testNum = t.replace(/[€\s.]/g, "").replace(",", ".");
+          const testNum = t.replace(/[â‚¬\s.]/g, "").replace(",", ".");
           if (item.x > midX && (/^\d/.test(t) || t.startsWith("-") || t.startsWith("("))) {
             const parsed = parseItalianNumber(t);
             if (parsed !== 0 || t === "0") numItems.push(parsed);
@@ -1163,7 +973,7 @@ function parseBilancioPdfData(pages) {
     return null;
   };
   
-  // ═══ STATO PATRIMONIALE ═══
+  // â”€â”€â”€ STATO PATRIMONIALE â”€â”€â”€
   // Attivo
   const totAttivo = find(["totale attivo"], allLines);
   if (totAttivo) data.totaleAttivo = totAttivo.value;
@@ -1177,7 +987,7 @@ function parseBilancioPdfData(pages) {
   const totImm = find(["totale immobilizzazioni (b)", "totale immobilizzazioni"], allLines);
   if (totImm) data.immobilizzazioni = totImm.value;
   
-  const disponLiquide = find(["disponibilità liquide", /^iv\s*-\s*disponibilit/], allLines);
+  const disponLiquide = find(["disponibilitÃ  liquide", /^iv\s*-\s*disponibilit/], allLines);
   if (disponLiquide) data.cassa = disponLiquide.value;
   
   const totCrediti = find(["totale crediti"], allLines);
@@ -1217,7 +1027,7 @@ function parseBilancioPdfData(pages) {
   const debitiTributari = find(["debiti tributari"], allLines);
   if (debitiTributari) data.debitiTributari = debitiTributari.value;
   
-  // ═══ CONTO ECONOMICO ═══
+  // â”€â”€â”€ CONTO ECONOMICO â”€â”€â”€
   const ricavi = find(["ricavi delle vendite e delle prestazioni", /^1\)\s*ricavi/], allLines);
   if (ricavi) data.ricavi = ricavi.value;
   
@@ -1286,7 +1096,7 @@ function parseBilancioPdfData(pages) {
   const incremInterni = find(["incrementi di immobilizzazioni per lavori interni", /^4\)\s*incrementi/], allLines);
   if (incremInterni) data.incrementiInterni = incremInterni.value;
   
-  // ═══ DATI ANAGRAFICI (dalla nota integrativa) ═══
+  // â”€â”€â”€ DATI ANAGRAFICI (dalla nota integrativa) â”€â”€â”€
   // Cerca "dipendenti" con numero
   const dipendenti = find(["impiegati", "totale dipendenti"], allLines);
   if (dipendenti) data.dipendenti = Math.round(Math.abs(dipendenti.value));
@@ -1361,7 +1171,7 @@ function parseBilancioExcel(file) {
             else if (label.includes("utile") && label.includes("esercizio") && !label.includes("prima")) data.utileNetto = val;
             else if (label.includes("totale patrimonio netto")) data.patrimonioNetto = val;
             else if (label.includes("capitale") && !label.includes("circolante")) data.capitaleSociale = val;
-            else if (label.includes("disponibilità liquide") && label.includes("totale")) data.cassa = val;
+            else if (label.includes("disponibilitÃ  liquide") && label.includes("totale")) data.cassa = val;
             else if (label.includes("debiti verso banche")) data.debitiFinanziari = val;
             else if (label.includes("debiti verso fornitori")) data.debitiCommerciali = val;
             else if (label.includes("totale debiti")) data.debitiTotali = val;
@@ -1409,7 +1219,7 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
   // Company
   if (data.capitaleSociale) setCompany(c => ({ ...c, capitaleSociale: data.capitaleSociale }));
   
-  /* ═══ REVENUE + GROSS MARGIN ═══
+  /* â”€â”€â”€ REVENUE + GROSS MARGIN â”€â”€â”€
      Strategy: back-calculate grossMargin from actual EBITDA so the model
      reproduces the bilancio results correctly.
      
@@ -1466,7 +1276,7 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
     }]);
   }
   
-  /* ═══ OPERATING COSTS ═══
+  /* â”€â”€â”€ OPERATING COSTS â”€â”€â”€
      Only truly "overhead" costs go here: godimento beni (rent/leasing)
      and oneri diversi di gestione. Costi per servizi (B.7) is absorbed
      into the grossMargin calculation above, to avoid double-counting.
@@ -1562,9 +1372,9 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
   return data;
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    EXPORT ENGINES
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 function exportPDF(company, financials, revenues, hrs, opexItems, investments, assumptions) {
   const {
@@ -1680,7 +1490,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     pessimistic: "Scenario Pessimistico",
     optimistic: "Scenario Ottimistico"
   }[company.scenario];
-  doc.text(`${scenarioLabel} — ${n} anni — ${company.currency}`, pg.w / 2, pg.h / 2 + 18, {
+  doc.text(`${scenarioLabel} â€” ${n} anni â€” ${company.currency}`, pg.w / 2, pg.h / 2 + 18, {
     align: "center"
   });
   doc.text("Generato il " + new Date().toLocaleDateString("it-IT"), pg.w / 2, pg.h / 2 + 28, {
@@ -1698,7 +1508,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     bold: true,
     highlight: true
   }, {
-    label: "  − Costo del venduto",
+    label: "  âˆ’ Costo del venduto",
     values: f.totalCOGS.map(v => -v)
   }, {
     label: "MARGINE LORDO",
@@ -1710,10 +1520,10 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     values: f.grossMarginPct,
     pct: true
   }, {
-    label: "  − Costo personale",
+    label: "  âˆ’ Costo personale",
     values: f.hrCosts.map(v => -v)
   }, {
-    label: "  − Costi operativi",
+    label: "  âˆ’ Costi operativi",
     values: f.opexCosts.map(v => -v)
   }, {
     label: "  + Contributi",
@@ -1728,24 +1538,24 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     values: f.ebitdaMargin,
     pct: true
   }, {
-    label: "  − Ammortamenti",
+    label: "  âˆ’ Ammortamenti",
     values: f.depreciation.map(v => -v)
   }, {
     label: "EBIT",
     values: f.ebit,
     bold: true
   }, {
-    label: "  − Interessi passivi",
+    label: "  âˆ’ Interessi passivi",
     values: f.interest.map(v => -v)
   }, {
     label: "UTILE ANTE IMPOSTE",
     values: f.ebt,
     bold: true
   }, {
-    label: "  − IRES",
+    label: "  âˆ’ IRES",
     values: f.ires.map(v => -v)
   }, {
-    label: "  − IRAP",
+    label: "  âˆ’ IRAP",
     values: f.irap.map(v => -v)
   }, ...(f.taxCreditUsed.some(v => v > 0) ? [{
     label: "  + Credito d'imposta",
@@ -1766,7 +1576,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
   y = pg.my;
   addTitle("STATO PATRIMONIALE PREVISIONALE");
   addTable("ATTIVO", [{
-    label: "Cassa e disponibilità",
+    label: "Cassa e disponibilitÃ ",
     values: f.cash.map(v => Math.max(0, v))
   }, {
     label: "Crediti commerciali",
@@ -1809,7 +1619,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     highlight: true
   }]);
   if (f.fundingGap.some(v => v > 0)) {
-    addTable("⚙️ FABBISOGNO FINANZIARIO", [{
+    addTable("âš ï¸ FABBISOGNO FINANZIARIO", [{
       label: "Gap di cassa (copertura necessaria)",
       values: f.fundingGap,
       bold: true
@@ -1836,10 +1646,10 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     label: "  + TFR accantonato",
     values: f.tfrAccrual
   }, {
-    label: "  ± Δ" Capitale circolante",
+    label: "  Â± Î” Capitale circolante",
     values: wcChange
   }, {
-    label: "  ± Rettifica contributi (cassa vs comp.)",
+    label: "  Â± Rettifica contributi (cassa vs comp.)",
     values: grantAdj
   }, {
     label: "CF OPERATIVO",
@@ -1847,7 +1657,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     bold: true,
     highlight: true
   }, {
-    label: "  − Investimenti",
+    label: "  âˆ’ Investimenti",
     values: f.cfInvesting
   }, {
     label: "CF INVESTIMENTO",
@@ -1857,13 +1667,13 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     label: "  + Nuovi finanziamenti",
     values: YEARS.map((_, i) => assumptions.debtAmount[i] || 0)
   }, {
-    label: "  − Rimborso debito",
+    label: "  âˆ’ Rimborso debito",
     values: YEARS.map((_, i) => -(assumptions.debtRepayment[i] || 0))
   }, {
     label: "  + Apporto equity",
     values: YEARS.map((_, i) => assumptions.equityInjection[i] || 0)
   }, {
-    label: "  − Dividendi",
+    label: "  âˆ’ Dividendi",
     values: f.dividends.map(v => -v)
   }, {
     label: "CF FINANZIAMENTO",
@@ -1880,9 +1690,9 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     bold: true
   }]);
 
-  // KPI Redditività
+  // KPI RedditivitÃ 
   addTitle("INDICATORI CHIAVE (KPI)");
-  addTable("Redditività", [{
+  addTable("RedditivitÃ ", [{
     label: "Margine lordo %",
     values: f.grossMarginPct,
     pct: true
@@ -1919,7 +1729,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     values: f.revenueGrowth,
     pct: true
   }]);
-  addTable("Sostenibilità finanziaria", [{
+  addTable("SostenibilitÃ  finanziaria", [{
     label: "DSCR (Debt Service Coverage)",
     values: f.dscr,
     dec: 2
@@ -1944,7 +1754,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     label: "Costi fissi totali",
     values: f.fixedCosts
   }, {
-    label: "Break-Even Point (€)",
+    label: "Break-Even Point (â‚¬)",
     values: f.bep
   }, {
     label: "Margine di sicurezza",
@@ -1973,7 +1783,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
   doc.setTextColor(f.rating.gradeColor === "#059669" ? 5 : f.rating.gradeColor === "#dc2626" ? 220 : 100,
     f.rating.gradeColor === "#059669" ? 150 : f.rating.gradeColor === "#dc2626" ? 38 : 100,
     f.rating.gradeColor === "#059669" ? 105 : f.rating.gradeColor === "#dc2626" ? 38 : 100);
-  doc.text(`Classe ${f.rating.grade} —” ${f.rating.score}/100 punti`, pg.mx, y);
+  doc.text(`Classe ${f.rating.grade} — ${f.rating.score}/100 punti`, pg.mx, y);
   y += 7;
   doc.setFontSize(11);
   doc.setTextColor(80);
@@ -1981,7 +1791,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
   doc.text(f.rating.gradeDesc, pg.mx, y);
   y += 10;
   
-  const ratingData = f.rating.details.map(d => [d.kpi, typeof d.value === "number" ? (d.kpi.includes("Margin") ? fmtPct(d.value) : fmt(d.value, 2)) : "—”", d.score + "/" + d.max, d.note]);
+  const ratingData = f.rating.details.map(d => [d.kpi, typeof d.value === "number" ? (d.kpi.includes("Margin") ? fmtPct(d.value) : fmt(d.value, 2)) : "—", d.score + "/" + d.max, d.note]);
   doc.autoTable({ startY: y, head: [["KPI", "Valore", "Punteggio", "Giudizio"]], body: ratingData,
     styles: { fontSize: 9, font: "helvetica" }, headStyles: { fillColor: [15, 36, 64] }, margin: { left: pg.mx, right: pg.mx } });
   y = doc.lastAutoTable.finalY + 10;
@@ -2067,7 +1877,7 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       label: "Ricavi totali",
       values: f.totalRevenue
     }, {
-      label: "(−) Costo del venduto",
+      label: "(âˆ’) Costo del venduto",
       values: f.totalCOGS.map(v => -v)
     }, {
       label: "MARGINE LORDO",
@@ -2077,10 +1887,10 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       values: f.grossMarginPct,
       pct: true
     }, {
-      label: "(−) Costo personale",
+      label: "(âˆ’) Costo personale",
       values: f.hrCosts.map(v => -v)
     }, {
-      label: "(−) Costi operativi",
+      label: "(âˆ’) Costi operativi",
       values: f.opexCosts.map(v => -v)
     }, {
       label: "(+) Contributi",
@@ -2093,22 +1903,22 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       values: f.ebitdaMargin,
       pct: true
     }, {
-      label: "(−) Ammortamenti",
+      label: "(âˆ’) Ammortamenti",
       values: f.depreciation.map(v => -v)
     }, {
       label: "EBIT",
       values: f.ebit
     }, {
-      label: "(−) Interessi passivi",
+      label: "(âˆ’) Interessi passivi",
       values: f.interest.map(v => -v)
     }, {
       label: "UTILE ANTE IMPOSTE (EBT)",
       values: f.ebt
     }, {
-      label: "(−) IRES",
+      label: "(âˆ’) IRES",
       values: f.ires.map(v => -v)
     }, {
-      label: "(−) IRAP",
+      label: "(âˆ’) IRAP",
       values: f.irap.map(v => -v)
     }, {
       label: "UTILE NETTO",
@@ -2124,7 +1934,7 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
   makeSheet("Stato Patrimoniale", [{
     title: "ATTIVO",
     rows: [{
-      label: "Cassa e disponibilità",
+      label: "Cassa e disponibilitÃ ",
       values: f.cash.map(v => Math.max(0, v))
     }, {
       label: "Crediti commerciali",
@@ -2181,10 +1991,10 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       label: "(+) Ammortamenti",
       values: f.depreciation
     }, {
-      label: "(±) Δ" Capitale circolante",
+      label: "(Â±) Î” Capitale circolante",
       values: xlWcChange
     }, {
-      label: "(±) Rettifica contributi (cassa vs comp.)",
+      label: "(Â±) Rettifica contributi (cassa vs comp.)",
       values: xlGrantAdj
     }, {
       label: "CF OPERATIVO",
@@ -2196,13 +2006,13 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       label: "(+) Nuovi finanziamenti",
       values: YEARS.map((_, i) => assumptions.debtAmount[i] || 0)
     }, {
-      label: "(−) Rimborso debito",
+      label: "(âˆ’) Rimborso debito",
       values: YEARS.map((_, i) => -(assumptions.debtRepayment[i] || 0))
     }, {
       label: "(+) Apporto equity",
       values: YEARS.map((_, i) => assumptions.equityInjection[i] || 0)
     }, {
-      label: "(−) Dividendi",
+      label: "(âˆ’) Dividendi",
       values: f.dividends.map(v => -v)
     }, {
       label: "CF FINANZIAMENTO",
@@ -2218,7 +2028,7 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
 
   // KPI
   makeSheet("KPI", [{
-    title: "REDDITIVITÀ",
+    title: "REDDITIVITÃ€",
     rows: [{
       label: "Margine lordo %",
       values: f.grossMarginPct,
@@ -2245,7 +2055,7 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       pct: true
     }]
   }, {
-    title: "SOSTENIBILITÀ FINANZIARIA",
+    title: "SOSTENIBILITÃ€ FINANZIARIA",
     rows: [{
       label: "DSCR (Debt Service Coverage)",
       values: f.dscr
@@ -2269,7 +2079,7 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       label: "Costi fissi totali",
       values: f.fixedCosts
     }, {
-      label: "Break-Even Point (€)",
+      label: "Break-Even Point (â‚¬)",
       values: f.bep
     }, {
       label: "Margine di sicurezza",
@@ -2295,7 +2105,7 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
   }]);
 
   // Dati input
-  const inputData = [["DATI AZIENDA"], ["Nome", company.name], ["Settore", company.sector], ["Scenario", company.scenario], ["Anni", company.yearsCount], [], ["LINEE DI RICAVO"], ["Nome", "Tipo", "Prezzo unit.", "Margine lordo", ...YL.slice(0, n).map(y => y + " (vol.)"), ...YL.slice(0, n).map(y => y + " (crescita)")], ...revenues.map(r => [r.name, r.type, r.unitPrice, fmtPct(r.grossMargin), ...r.volumes.slice(0, n), ...(r.growthRates || [0, .05, .05, .05, .05]).slice(0, n).map(g => fmtPct(g))]), [], ["PERSONALE"], ["Ruolo", "Tipo", "Costo annuo", "Crescita", ...YL.slice(0, n).map(y => y + " (n°)")], ...hrs.map(h => [h.role, h.type, h.annualCost, fmtPct(h.growthRate), ...h.count.slice(0, n)]), [], ["COSTI OPERATIVI"], ["Nome", "Categoria", "Metodo", "Valore/Tasso", ...YL.slice(0, n)], ...opexItems.map(o => [o.name, o.category, o.isPercentOfRevenue ? "%Ricavi" : "Fisso", o.isPercentOfRevenue ? fmtPct(o.percentOfRevenue) : fmtPct(o.growthRate), ...(o.isPercentOfRevenue ? Array(n).fill("% sui ricavi") : o.values.slice(0, n))]), [], ["INVESTIMENTI"], ["Nome", "Tipo", "Costo", "Vita utile", "Anno"], ...investments.map(inv => [inv.name, inv.type, inv.cost, inv.usefulLife, YL[inv.year]]), [], ["IPOTESI FINANZIARIE"], ["IRES", fmtPct(assumptions.iresRate)], ["IRAP", fmtPct(assumptions.irapRate)], ["IVA", fmtPct(assumptions.vatRate)], ["DSO (gg)", assumptions.dso], ["DPO (gg)", assumptions.dpo], ["DIO (gg)", assumptions.dio], ["Tasso interesse", fmtPct(assumptions.interestRate)], ["Payout dividendi", fmtPct(assumptions.dividendPayout)], ["Contributo", assumptions.grantAmount], ["Anni contributo", assumptions.grantYears]];
+  const inputData = [["DATI AZIENDA"], ["Nome", company.name], ["Settore", company.sector], ["Scenario", company.scenario], ["Anni", company.yearsCount], [], ["LINEE DI RICAVO"], ["Nome", "Tipo", "Prezzo unit.", "Margine lordo", ...YL.slice(0, n).map(y => y + " (vol.)"), ...YL.slice(0, n).map(y => y + " (crescita)")], ...revenues.map(r => [r.name, r.type, r.unitPrice, fmtPct(r.grossMargin), ...r.volumes.slice(0, n), ...(r.growthRates || [0, .05, .05, .05, .05]).slice(0, n).map(g => fmtPct(g))]), [], ["PERSONALE"], ["Ruolo", "Tipo", "Costo annuo", "Crescita", ...YL.slice(0, n).map(y => y + " (nÂ°)")], ...hrs.map(h => [h.role, h.type, h.annualCost, fmtPct(h.growthRate), ...h.count.slice(0, n)]), [], ["COSTI OPERATIVI"], ["Nome", "Categoria", "Metodo", "Valore/Tasso", ...YL.slice(0, n)], ...opexItems.map(o => [o.name, o.category, o.isPercentOfRevenue ? "%Ricavi" : "Fisso", o.isPercentOfRevenue ? fmtPct(o.percentOfRevenue) : fmtPct(o.growthRate), ...(o.isPercentOfRevenue ? Array(n).fill("% sui ricavi") : o.values.slice(0, n))]), [], ["INVESTIMENTI"], ["Nome", "Tipo", "Costo", "Vita utile", "Anno"], ...investments.map(inv => [inv.name, inv.type, inv.cost, inv.usefulLife, YL[inv.year]]), [], ["IPOTESI FINANZIARIE"], ["IRES", fmtPct(assumptions.iresRate)], ["IRAP", fmtPct(assumptions.irapRate)], ["IVA", fmtPct(assumptions.vatRate)], ["DSO (gg)", assumptions.dso], ["DPO (gg)", assumptions.dpo], ["DIO (gg)", assumptions.dio], ["Tasso interesse", fmtPct(assumptions.interestRate)], ["Payout dividendi", fmtPct(assumptions.dividendPayout)], ["Contributo", assumptions.grantAmount], ["Anni contributo", assumptions.grantYears]];
   const wsInput = XLSX.utils.aoa_to_sheet(inputData);
   wsInput["!cols"] = [{
     wch: 30
@@ -2348,7 +2158,7 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
   // #2 Piano agevolazioni sheet
   if (f.pianoAgevolazioni.totaleEleggibile > 0) {
     const agevSheet = [
-      ["PIANO INVESTIMENTI —” SPESE AMMISSIBILI"],
+      ["PIANO INVESTIMENTI — SPESE AMMISSIBILI"],
       [], ["Investimento", "Importo", "Tipo", "Categoria", "Eleggibile", "% Agev.", "Agevolazione stimata"],
       ...investments.map(inv => [
         inv.name || "N/D", inv.cost, inv.type === "tangible" ? "Materiale" : "Immateriale",
@@ -2369,9 +2179,9 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
   XLSX.writeFile(wb, `piano-economico-${sanitizeName(company.name)}.xlsx`);
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    UI COMPONENTS
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const css = {
   input: {
     width: "100%",
@@ -2690,9 +2500,9 @@ function Badge({
   }, children);
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    STEP COMPONENTS
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function StepCompany({
   company: c,
   setCompany: set,
@@ -2700,252 +2510,170 @@ function StepCompany({
   setHrs,
   setOpexItems,
   setInvestments,
-  setAssumptions,
-  loans,
-  setLoans
+  setAssumptions
 }) {
-  const isExisting = c.companyType === "existing" || c.companyType === "crisis";
-  const yearLabels = getYearLabels(c);
-  
-  // Auto-sync bilancio Anno 0 → opening balances
-  useEffect(() => {
-    if (c.bilpianoAnno0 && c.bilpianoAnno0.ricavi > 0) {
-      setAssumptions(a => {
-        const b = c.bilpianoAnno0;
-        return { ...a,
-          openingCash: b.cassa || a.openingCash,
-          openingDebt: b.debitiFinanziari || a.openingDebt,
-          openingEquity: b.patrimonioNetto || a.openingEquity,
-          openingFA: b.immobilizzazioniNette || a.openingFA,
-          openingAR: b.creditiCommerciali || a.openingAR,
-          openingAP: b.debitiCommerciali || a.openingAP,
-          openingInventory: b.rimanenze || a.openingInventory,
-          openingTFR: b.tfr || a.openingTFR,
-        };
-      });
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 20
     }
-  }, [c.bilpianoAnno0]);
-  
-  // Apply sector template
-  const applySectorTemplate = (sectorKey) => {
-    const tmpl = SECTOR_TEMPLATES[sectorKey];
-    if (!tmpl) return;
-    set(prev => ({ ...prev, sectorTemplate: sectorKey, sector: tmpl.label }));
-    setAssumptions(a => ({ ...a, dso: tmpl.dso, dpo: tmpl.dpo, dio: tmpl.dio }));
-    // Apply default gross margin to existing revenue lines
-    setRevenues(prev => prev.map(r => r.grossMargin === 0.40 ? { ...r, grossMargin: tmpl.grossMargin } : r));
-  };
-  
-  // Handle bilancio file upload (for Anno 0 or Anno -1)
-  const handleBilancioUpload = async (file, target) => {
-    try {
-      const data = await parseBilancioFile(file);
-      const bil = { ...BILANCIO_TEMPLATE() };
-      // Map parsed data to bilancio template
-      bil.ricavi = data.ricavi || 0;
-      bil.altriRicavi = (data.valoreProduzione || 0) - (data.ricavi || 0);
-      bil.valoreProduzione = data.valoreProduzione || data.ricavi || 0;
-      bil.materiePrime = data.materiePrime || 0;
-      bil.costiServizi = data.costiServizi || 0;
-      bil.godimentoBeni = data.godimentoBeni || 0;
-      bil.oneriDiversi = data.oneriDiversi || 0;
-      bil.costiEsterni = (data.materiePrime||0) + (data.costiServizi||0) + (data.godimentoBeni||0) + (data.oneriDiversi||0);
-      bil.valoreAggiunto = bil.valoreProduzione - bil.costiEsterni;
-      bil.personale = data.personale || 0;
-      bil.ebitda = data.ebitda || (bil.valoreAggiunto - bil.personale);
-      bil.ammortamenti = data.ammortamenti || 0;
-      bil.ebit = bil.ebitda - bil.ammortamenti;
-      bil.interessiPassivi = data.interessiPassivi || 0;
-      bil.risultatoPrimaImposte = data.risultatoPrimaImposte || (bil.ebit - bil.interessiPassivi);
-      bil.imposte = data.imposte || 0;
-      bil.utileNetto = data.utileNetto || (bil.risultatoPrimaImposte - bil.imposte);
-      bil.immobilizzazioniNette = (data.immobilizzazioniImmateriali||0) + (data.immobilizzazioniMateriali||0);
-      bil.creditiCommerciali = data.creditiCommerciali || data.creditiTotali || 0;
-      bil.rimanenze = data.rimanenze || 0;
-      bil.cassa = data.cassa || 0;
-      bil.totaleAttivo = data.totaleAttivo || (bil.immobilizzazioniNette + bil.creditiCommerciali + bil.rimanenze + bil.cassa);
-      bil.capitaleSociale = data.capitaleSociale || 0;
-      bil.patrimonioNetto = data.patrimonioNetto || 0;
-      bil.riserve = bil.patrimonioNetto - bil.capitaleSociale - bil.utileNetto;
-      bil.debitiFinanziari = data.debitiFinanziari || 0;
-      bil.debitiCommerciali = data.debitiCommerciali || 0;
-      bil.tfr = data.tfr || 0;
-      bil.totalePassivo = bil.totaleAttivo;
-      bil.dipendenti = data.dipendenti || 0;
-      bil.annoRiferimento = target === "anno0" ? c.startYear - 1 : c.startYear - 2;
-      bil.fonte = file.name.endsWith(".pdf") ? "import_pdf" : "import_excel";
-      
-      if (target === "anno0") {
-        set(prev => ({ ...prev, bilpianoAnno0: bil }));
-        if (bil.capitaleSociale > 0) set(prev => ({ ...prev, capitaleSociale: bil.capitaleSociale }));
-        // Also apply bilancio data to prefill the plan
-        applyBilancioData(data, set, setRevenues, setHrs, setOpexItems, setInvestments, setAssumptions, c);
-        alert("\u2705 Bilancio " + bil.annoRiferimento + " importato come Anno 0 (consuntivo)");
-      } else {
-        set(prev => ({ ...prev, bilpianoAnnoM1: bil }));
-        alert("\u2705 Bilancio " + bil.annoRiferimento + " importato come Anno -1");
-      }
-    } catch(err) {
-      alert("\u274C Errore importazione: " + err.message);
+  }, /*#__PURE__*/React.createElement(Tip, {
+    text: "Inserisci i dati generali dell'impresa. Lo scenario influenza i ricavi: Pessimistico applica \u221215%, Ottimistico +15%."
+  }),
+  /*#__PURE__*/React.createElement(ImportBilancioPanel, {
+    setCompany: set,
+    setRevenues: setRevenues,
+    setHrs: setHrs,
+    setOpexItems: setOpexItems,
+    setInvestments: setInvestments,
+    setAssumptions: setAssumptions,
+    company: c
+  }),
+  /*#__PURE__*/React.createElement(Card, {
+    title: "Dati Azienda"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 16
     }
-  };
-  
-  const fileRef0 = useRef(null);
-  const fileRefM1 = useRef(null);
-  
-  // Bilancio preview table
-  const BilancioPreview = ({ bil, label }) => {
-    if (!bil || !bil.ricavi) return null;
-    const rows = [
-      ["Ricavi", bil.ricavi], ["Valore Produzione", bil.valoreProduzione],
-      ["Costi Esterni", -bil.costiEsterni], ["Valore Aggiunto", bil.valoreAggiunto],
-      ["Personale", -bil.personale], ["EBITDA (MOL)", bil.ebitda],
-      ["Ammortamenti", -bil.ammortamenti], ["EBIT", bil.ebit],
-      ["Oneri Finanziari", -bil.interessiPassivi], ["Utile Netto", bil.utileNetto],
-      null, // separator
-      ["Immobilizzazioni Nette", bil.immobilizzazioniNette], ["Crediti Commerciali", bil.creditiCommerciali],
-      ["Cassa", bil.cassa], ["Patrimonio Netto", bil.patrimonioNetto],
-      ["Debiti Finanziari", bil.debitiFinanziari], ["Dipendenti", bil.dipendenti]
-    ].filter(r => r === null || r[1] !== 0);
-    return React.createElement("div", { style: { marginTop: 8 } },
-      React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#1e3a5f", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 } },
-        React.createElement("span", null, label + " (" + bil.annoRiferimento + ")"),
-        React.createElement("span", { style: { fontSize: 10, padding: "2px 8px", background: "#ecfdf5", color: "#059669", borderRadius: 4 } }, bil.fonte === "import_pdf" ? "da PDF" : bil.fonte === "import_excel" ? "da Excel" : "manuale")
-      ),
-      rows.map((r, i) => r === null ?
-        React.createElement("div", { key: i, style: { height: 1, background: "#e5e7eb", margin: "6px 0" } }) :
-        React.createElement("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "3px 8px", fontSize: 12, background: i % 2 === 0 ? "#f9fafb" : "#fff", borderRadius: 4 } },
-          React.createElement("span", { style: { color: "#6b7280" } }, r[0]),
-          React.createElement("span", { style: { fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, color: r[1] < 0 ? "#dc2626" : "#374151" } },
-            r[0] === "Dipendenti" ? r[1] : fmtEur(Math.abs(r[1])))
-        )
-      )
-    );
-  };
-  
-  return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 20 } },
-  
-    // ═══ 1. TIPO IMPRESA ═══
-    React.createElement(Card, { title: "\uD83C\uDFAF Tipo di Impresa", accent: true },
-      React.createElement(Tip, { text: "Seleziona il tipo di impresa per personalizzare l\u2019esperienza. Per le aziende esistenti, potrai caricare i bilanci depositati." }),
-      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } },
-        COMPANY_TYPES.map(ct => React.createElement("button", {
-          key: ct.value,
-          onClick: () => set({ ...c, companyType: ct.value }),
-          style: { padding: "16px", border: c.companyType === ct.value ? "2px solid #2563eb" : "2px solid #e5e7eb",
-            borderRadius: 12, background: c.companyType === ct.value ? "#eff6ff" : "#fff", cursor: "pointer",
-            textAlign: "left", transition: "all .2s" }
-        },
-          React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#1e3a5f", marginBottom: 4 } }, ct.label),
-          React.createElement("div", { style: { fontSize: 12, color: "#6b7280", lineHeight: 1.4 } }, ct.desc)
-        ))
-      )
+  }, /*#__PURE__*/React.createElement(InputField, {
+    label: "Nome Azienda",
+    value: c.name,
+    onChange: v => set({
+      ...c,
+      name: v
+    }),
+    type: "text",
+    placeholder: "Es. INGENIA S.R.L."
+  }), /*#__PURE__*/React.createElement(InputField, {
+    label: "Settore",
+    value: c.sector,
+    onChange: v => set({
+      ...c,
+      sector: v
+    }),
+    type: "text",
+    placeholder: "Es. Tecnologia"
+  }), /*#__PURE__*/React.createElement(SelectField, {
+    label: "Valuta",
+    value: c.currency,
+    onChange: v => set({
+      ...c,
+      currency: v
+    }),
+    options: [{
+      value: "EUR",
+      label: "â‚¬ Euro"
+    }, {
+      value: "USD",
+      label: "$ Dollaro"
+    }, {
+      value: "GBP",
+      label: "Â£ Sterlina"
+    }]
+  }), /*#__PURE__*/React.createElement(SelectField, {
+    label: "Orizzonte temporale",
+    value: c.yearsCount,
+    onChange: v => set({
+      ...c,
+      yearsCount: parseInt(v)
+    }),
+    options: [{
+      value: 3,
+      label: "3 Anni"
+    }, {
+      value: 5,
+      label: "5 Anni"
+    }]
+  }), /*#__PURE__*/React.createElement(SelectField, {
+    label: "Scenario",
+    value: c.scenario,
+    onChange: v => set({
+      ...c,
+      scenario: v
+    }),
+    options: [{
+      value: "base",
+      label: "ðŸŽ¯ Base"
+    }, {
+      value: "pessimistic",
+      label: "âš ï¸ Pessimistico (âˆ’15%)"
+    }, {
+      value: "optimistic",
+      label: "ðŸš€ Ottimistico (+15%)"
+    }]
+  }), /*#__PURE__*/React.createElement(InputField, {
+    label: "Capitale Sociale",
+    value: c.capitaleSociale,
+    onChange: v => set({
+      ...c,
+      capitaleSociale: v
+    }),
+    suffix: "\u20AC",
+    tooltip: "Usato per verifica Art. 2447 CC. Il versamento effettivo va inserito come Apporto Equity nel passo Ipotesi."
+  })), /*#__PURE__*/React.createElement(Note, null, "Il ", /*#__PURE__*/React.createElement("strong", null, "Capitale Sociale"), " qui serve come riferimento legale per la verifica Art. 2447 c.c. (PN ", "<", " 1/3 CS = obbligo ricapitalizzazione). Il versamento effettivo in cassa va inserito come ", /*#__PURE__*/React.createElement("strong", null, "Apporto Equity Anno 1"), " nel passo Ipotesi Finanziarie. Per SRL ordinaria il minimo \xE8 \u20AC10.000, per SRLS \u20AC1.")), /*#__PURE__*/React.createElement(Card, {
+    title: "Come funziona questo strumento"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      color: "#4b5563",
+      lineHeight: 1.7
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "0 0 12px"
+    }
+  }, "Procedi passo per passo compilando ogni sezione. Al termine, nella sezione ", /*#__PURE__*/React.createElement("strong", null, "Risultati"), " troverai:"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10
+    }
+  }, STEPS.map(s => /*#__PURE__*/React.createElement("div", {
+    key: s.id,
+    style: {
+      padding: "8px 12px",
+      background: "#f9fafb",
+      borderRadius: 8,
+      fontSize: 13
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginRight: 6
+    }
+  }, s.icon), /*#__PURE__*/React.createElement("strong", null, s.label), " \u2014 ", s.desc))))),
+  // #1 Nota metodologica
+  React.createElement(Card, { title: "\uD83D\uDCDD Nota Metodologica — Azienda", collapsible: true, defaultOpen: false },
+    React.createElement(Tip, { text: "Descrivi il contesto dell'azienda, la storia, il mercato di riferimento e le ragioni del piano. Questo testo verrà incluso nel PDF esportato e sarà letto dalla banca o dall'ente valutatore." }),
+    React.createElement(TextAreaField, { label: "Descrizione azienda e contesto", value: c.noteAzienda, onChange: v => set({ ...c, noteAzienda: v }),
+      placeholder: "Es. L'azienda opera nel settore XYZ dal 20XX, con un organico di N dipendenti. Il presente piano è redatto per supportare la richiesta di finanziamento bancario / accesso al bando XYZ per un programma di investimento in...", rows: 5 })
+  ),
+  // #8 Dati storici
+  React.createElement(Card, { title: "\uD83D\uDCCA Dati Storici (Anno -1 e -2)", collapsible: true, defaultOpen: false },
+    React.createElement(Tip, { text: "Inserisci i principali dati di bilancio degli ultimi 2 anni per mostrare il ponte Storico → Previsionale. Verranno visualizzati accanto ai dati previsionali nella sezione Risultati." }),
+    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 12 } },
+      React.createElement("label", { style: { fontSize: 13, fontWeight: 600, color: "#374151" } }, "Attiva dati storici"),
+      React.createElement("input", { type: "checkbox", checked: c.storico?.hasStorico || false,
+        onChange: e => set({ ...c, storico: { ...(c.storico || {}), hasStorico: e.target.checked } }),
+        style: { width: 18, height: 18, cursor: "pointer" }
+      })
     ),
-    
-    // ═══ 2. DATI GENERALI ═══
-    React.createElement(Card, { title: "Dati Azienda" },
-      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 } },
-        React.createElement(InputField, { label: "Nome Azienda", value: c.name, onChange: v => set({ ...c, name: v }), type: "text", placeholder: "Es. INGENIA S.R.L." }),
-        React.createElement(SelectField, { label: "Settore", value: c.sectorTemplate || "altro",
-          onChange: v => applySectorTemplate(v),
-          options: Object.entries(SECTOR_TEMPLATES).map(([k, v]) => ({ value: k, label: v.label }))
-        }),
-        React.createElement(InputField, { label: "Anno inizio piano", value: c.startYear, onChange: v => set({ ...c, startYear: parseInt(v) || new Date().getFullYear() }),
-          suffix: "", min: 2020, step: 1, tooltip: "L\u2019Anno 1 del piano previsionale. Se carichi un bilancio, quello diventa Anno 0." }),
-        React.createElement(SelectField, { label: "Orizzonte temporale", value: c.yearsCount, onChange: v => set({ ...c, yearsCount: parseInt(v) }),
-          options: [{ value: 3, label: "3 Anni" }, { value: 5, label: "5 Anni" }] }),
-        React.createElement(SelectField, { label: "Scenario", value: c.scenario, onChange: v => set({ ...c, scenario: v }),
-          options: [{ value: "base", label: "\uD83C\uDFAF Base" }, { value: "pessimistic", label: "\u26A0\uFE0F Pessimistico (\u221215%)" }, { value: "optimistic", label: "\uD83D\uDE80 Ottimistico (+15%)" }] }),
-        React.createElement(InputField, { label: "Capitale Sociale", value: c.capitaleSociale, onChange: v => set({ ...c, capitaleSociale: v }), suffix: "\u20AC",
-          tooltip: "Per SRL ordinaria min \u20AC10.000, per SRLS \u20AC1. Usato per verifica Art. 2447 CC." })
-      ),
-      React.createElement(Note, null, "Il ", React.createElement("strong", null, "Capitale Sociale"), " serve come riferimento legale per la verifica Art. 2447 c.c. Il versamento effettivo va inserito come ", React.createElement("strong", null, "Apporto Equity"), " nel passo Finanziamenti.")
-    ),
-    
-    // ═══ 3. BILANCI STORICI (solo per aziende esistenti) ═══
-    isExisting && React.createElement(Card, { title: "\uD83D\uDCC2 Bilanci Storici \u2014 Anno 0 e Anno -1", accent: true },
-      React.createElement(Tip, { text: "Carica il bilancio dell\u2019ultimo esercizio chiuso (Anno 0 = consuntivo " + (c.startYear - 1) + "). Opzionalmente puoi caricare anche il penultimo (Anno -1 = " + (c.startYear - 2) + "). I dati popoleranno automaticamente i saldi di apertura e verranno mostrati nei prospetti come colonne storiche." }),
-      
-      // Anno 0 upload
-      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 } },
-        React.createElement("div", { style: { padding: 16, border: "2px dashed " + (c.bilpianoAnno0 ? "#059669" : "#d1d5db"), borderRadius: 12, background: c.bilpianoAnno0 ? "#ecfdf5" : "#fafafa", textAlign: "center" } },
-          React.createElement("input", { ref: fileRef0, type: "file", accept: ".pdf,.xlsx,.xls,.csv", onChange: e => e.target.files[0] && handleBilancioUpload(e.target.files[0], "anno0"), style: { display: "none" } }),
-          React.createElement("div", { style: { fontSize: 28, marginBottom: 6 } }, c.bilpianoAnno0 ? "\u2705" : "\uD83D\uDCC4"),
-          React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#1e3a5f" } }, "Anno 0 \u2014 Bilancio " + (c.startYear - 1)),
-          React.createElement("div", { style: { fontSize: 12, color: "#6b7280", marginBottom: 8 } }, c.bilpianoAnno0 ? "Importato \u2713" : "Ultimo esercizio chiuso"),
-          React.createElement(Btn, { small: true, onClick: () => fileRef0.current.click() }, c.bilpianoAnno0 ? "\u21BA Ricarica" : "\uD83D\uDCC2 Carica PDF/Excel"),
-          c.bilpianoAnno0 && React.createElement(Btn, { small: true, danger: true, onClick: () => set({ ...c, bilpianoAnno0: null }), style: { marginLeft: 6 } }, "\u2715 Rimuovi")
-        ),
-        React.createElement("div", { style: { padding: 16, border: "2px dashed " + (c.bilpianoAnnoM1 ? "#059669" : "#d1d5db"), borderRadius: 12, background: c.bilpianoAnnoM1 ? "#ecfdf5" : "#fafafa", textAlign: "center" } },
-          React.createElement("input", { ref: fileRefM1, type: "file", accept: ".pdf,.xlsx,.xls,.csv", onChange: e => e.target.files[0] && handleBilancioUpload(e.target.files[0], "annoM1"), style: { display: "none" } }),
-          React.createElement("div", { style: { fontSize: 28, marginBottom: 6 } }, c.bilpianoAnnoM1 ? "\u2705" : "\uD83D\uDCC4"),
-          React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#1e3a5f" } }, "Anno -1 \u2014 Bilancio " + (c.startYear - 2)),
-          React.createElement("div", { style: { fontSize: 12, color: "#6b7280", marginBottom: 8 } }, c.bilpianoAnnoM1 ? "Importato \u2713" : "Opzionale \u2014 penultimo esercizio"),
-          React.createElement(Btn, { small: true, onClick: () => fileRefM1.current.click() }, c.bilpianoAnnoM1 ? "\u21BA Ricarica" : "\uD83D\uDCC2 Carica PDF/Excel"),
-          c.bilpianoAnnoM1 && React.createElement(Btn, { small: true, danger: true, onClick: () => set({ ...c, bilpianoAnnoM1: null }), style: { marginLeft: 6 } }, "\u2715 Rimuovi")
-        )
-      ),
-      
-      // Bilancio previews
-      c.bilpianoAnnoM1 && React.createElement(BilancioPreview, { bil: c.bilpianoAnnoM1, label: "\uD83D\uDCCB CE/SP Anno -1" }),
-      c.bilpianoAnno0 && React.createElement(BilancioPreview, { bil: c.bilpianoAnno0, label: "\uD83D\uDCCB CE/SP Anno 0 (consuntivo)" }),
-      
-      // Manual input fallback
-      React.createElement("details", { style: { marginTop: 12 } },
-        React.createElement("summary", { style: { fontSize: 12, color: "#6b7280", cursor: "pointer", fontWeight: 600 } }, "\u270F\uFE0F Inserimento manuale Anno 0 (se non hai il file)"),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 12 } },
-          React.createElement("div", { style: { gridColumn: "1/4", fontWeight: 700, fontSize: 12, color: "#1e3a5f", textTransform: "uppercase" } }, "Conto Economico " + (c.startYear - 1)),
-          ...[["Ricavi", "ricavi"], ["Costi Esterni", "costiEsterni"], ["Personale", "personale"], ["EBITDA", "ebitda"], ["Ammortamenti", "ammortamenti"], ["Utile Netto", "utileNetto"]].map(([lbl, key]) =>
-            React.createElement(InputField, { key: key, label: lbl, value: (c.bilpianoAnno0 || {})[key] || 0,
-              onChange: v => set({ ...c, bilpianoAnno0: { ...(c.bilpianoAnno0 || BILANCIO_TEMPLATE()), [key]: v, annoRiferimento: c.startYear - 1, fonte: "manuale",
-                ebit: key === "ebitda" ? v - ((c.bilpianoAnno0||{}).ammortamenti||0) : key === "ammortamenti" ? ((c.bilpianoAnno0||{}).ebitda||0) - v : (c.bilpianoAnno0||{}).ebit||0 } }),
-              suffix: "\u20AC" })
-          ),
-          React.createElement("div", { style: { gridColumn: "1/4", fontWeight: 700, fontSize: 12, color: "#1e3a5f", textTransform: "uppercase", marginTop: 8 } }, "Stato Patrimoniale " + (c.startYear - 1)),
-          ...[["Immobilizzazioni Nette", "immobilizzazioniNette"], ["Crediti Commerciali", "creditiCommerciali"], ["Cassa", "cassa"], ["Patrimonio Netto", "patrimonioNetto"], ["Debiti Finanziari", "debitiFinanziari"], ["Debiti vs Fornitori", "debitiCommerciali"], ["TFR", "tfr"], ["Rimanenze", "rimanenze"]].map(([lbl, key]) =>
-            React.createElement(InputField, { key: key, label: lbl, value: (c.bilpianoAnno0 || {})[key] || 0,
-              onChange: v => set({ ...c, bilpianoAnno0: { ...(c.bilpianoAnno0 || BILANCIO_TEMPLATE()), [key]: v, annoRiferimento: c.startYear - 1, fonte: "manuale" } }),
-              suffix: "\u20AC" })
-          )
-        )
-      ),
-      
-      React.createElement(Note, null, "Il bilancio Anno 0 diventa il punto di partenza del piano. I saldi patrimoniali vengono copiati automaticamente nei Saldi di Apertura. Il CE Anno 0 viene mostrato nei Risultati come colonna \u201Cconsuntivo\u201D accanto ai dati previsionali, permettendo all\u2019analista di valutare la coerenza della crescita.")
-    ),
-    
-    // ═══ 4. NOTA METODOLOGICA ═══
-    React.createElement(Card, { title: "\uD83D\uDCDD Nota Metodologica", collapsible: true, defaultOpen: false },
-      React.createElement(Tip, { text: "Descrivi il contesto dell\u2019azienda, il mercato di riferimento e le ragioni del piano. Questo testo verr\u00E0 incluso nel PDF e letto dalla banca." }),
-      React.createElement(TextAreaField, { label: "Contesto e finalit\u00E0 del piano", value: c.noteAzienda, onChange: v => set({ ...c, noteAzienda: v }),
-        placeholder: "Es. L\u2019azienda opera nel settore XYZ dal 20XX con N dipendenti. Il presente piano \u00E8 redatto per supportare la richiesta di finanziamento bancario / accesso al bando XYZ...", rows: 5 })
-    ),
-    
-    // ═══ 5. ASSE TEMPORALE (preview) ═══
-    React.createElement(Card, { title: "\uD83D\uDCC5 Asse Temporale del Piano" },
-      React.createElement("div", { style: { display: "flex", gap: 4, overflowX: "auto", padding: "8px 0" } },
-        yearLabels.full.map((yl, i) => React.createElement("div", { key: i, style: {
-          padding: "10px 16px", borderRadius: 10, minWidth: 90, textAlign: "center",
-          background: yl.type === "storico" ? "#f3f4f6" : yl.type === "consuntivo" ? "#fef3c7" : "#eff6ff",
-          border: yl.type === "consuntivo" ? "2px solid #d97706" : yl.type === "previsionale" ? "2px solid #2563eb" : "1px solid #d1d5db"
-        } },
-          React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: yl.type === "consuntivo" ? "#92400e" : yl.type === "previsionale" ? "#1e3a5f" : "#6b7280" } }, yl.label),
-          React.createElement("div", { style: { fontSize: 10, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", marginTop: 2 } },
-            yl.type === "storico" ? "Anno -1" : yl.type === "consuntivo" ? "Anno 0" : "Anno " + (i - yearLabels.full.findIndex(y => y.type === "previsionale") + 1))
-        ))
-      ),
-      React.createElement(Note, null, isExisting ?
-        "Le colonne gialle sono dati consuntivi (da bilancio). Le colonne blu sono previsionali. L\u2019analista bancario verificher\u00E0 la coerenza del passaggio storico \u2192 previsionale." :
-        "Il piano parte dall\u2019Anno " + c.startYear + ". Tutti i dati sono previsionali."
-      )
-    ),
-    
-    // ═══ 6. IMPORT BILANCIO LEGACY (for non-existing companies that still want to import) ═══
-    !isExisting && React.createElement(ImportBilancioPanel, {
-      setCompany: set, setRevenues, setHrs, setOpexItems, setInvestments, setAssumptions, company: c
-    })
-  );
+    (c.storico?.hasStorico) && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 } },
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: "#1e3a5f", gridColumn: "1/3", textTransform: "uppercase" } }, "Anno -2 (Bilancio precedente)"),
+      React.createElement(InputField, { label: "Ricavi", value: c.storico?.ricaviM2 || 0, onChange: v => set({ ...c, storico: { ...c.storico, ricaviM2: v } }), suffix: "\u20AC" }),
+      React.createElement(InputField, { label: "EBITDA", value: c.storico?.ebitdaM2 || 0, onChange: v => set({ ...c, storico: { ...c.storico, ebitdaM2: v } }), suffix: "\u20AC" }),
+      React.createElement(InputField, { label: "Utile Netto", value: c.storico?.utileM2 || 0, onChange: v => set({ ...c, storico: { ...c.storico, utileM2: v } }), suffix: "\u20AC" }),
+      React.createElement(InputField, { label: "Patrimonio Netto", value: c.storico?.pnM2 || 0, onChange: v => set({ ...c, storico: { ...c.storico, pnM2: v } }), suffix: "\u20AC" }),
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: "#1e3a5f", gridColumn: "1/3", textTransform: "uppercase", marginTop: 8 } }, "Anno -1 (Ultimo bilancio)"),
+      React.createElement(InputField, { label: "Ricavi", value: c.storico?.ricaviM1 || 0, onChange: v => set({ ...c, storico: { ...c.storico, ricaviM1: v } }), suffix: "\u20AC" }),
+      React.createElement(InputField, { label: "EBITDA", value: c.storico?.ebitdaM1 || 0, onChange: v => set({ ...c, storico: { ...c.storico, ebitdaM1: v } }), suffix: "\u20AC" }),
+      React.createElement(InputField, { label: "Utile Netto", value: c.storico?.utileM1 || 0, onChange: v => set({ ...c, storico: { ...c.storico, utileM1: v } }), suffix: "\u20AC" }),
+      React.createElement(InputField, { label: "Patrimonio Netto", value: c.storico?.pnM1 || 0, onChange: v => set({ ...c, storico: { ...c.storico, pnM1: v } }), suffix: "\u20AC" })
+    )
+  ));
 }
-
 function StepRevenue({
   revenues: lines,
   setRevenues: set,
@@ -3378,7 +3106,7 @@ function StepProduction({
         textAlign: "right",
         color: dep > 0 ? "#374151" : "#d1d5db"
       }
-    }, dep > 0 ? fmt(Math.round(dep)) : "—");
+    }, dep > 0 ? fmt(Math.round(dep)) : "â€”");
   }))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
@@ -4328,10 +4056,10 @@ function Gauge({
   note,
   invert
 }) {
-  // thresholds: {green:x, yellow:y} — green if value>=green, yellow if >=yellow, red otherwise (invert reverses)
+  // thresholds: {green:x, yellow:y} â€” green if value>=green, yellow if >=yellow, red otherwise (invert reverses)
   let color = "#6b7280",
     bg = "#f3f4f6",
-    icon = "⚪";
+    icon = "âšª";
   if (value != null && !isNaN(value) && thresholds) {
     const {
       green,
@@ -4341,29 +4069,29 @@ function Gauge({
       if (value <= green) {
         color = "#059669";
         bg = "#ecfdf5";
-        icon = "🟢";
+        icon = "ðŸŸ¢";
       } else if (value <= yellow) {
         color = "#d97706";
         bg = "#fffbeb";
-        icon = "🟡";
+        icon = "ðŸŸ¡";
       } else {
         color = "#dc2626";
         bg = "#fef2f2";
-        icon = "🔴";
+        icon = "ðŸ”´";
       }
     } else {
       if (value >= green) {
         color = "#059669";
         bg = "#ecfdf5";
-        icon = "🟢";
+        icon = "ðŸŸ¢";
       } else if (value >= yellow) {
         color = "#d97706";
         bg = "#fffbeb";
-        icon = "🟡";
+        icon = "ðŸŸ¡";
       } else {
         color = "#dc2626";
         bg = "#fef2f2";
-        icon = "🔴";
+        icon = "ðŸ”´";
       }
     }
   }
@@ -4422,22 +4150,22 @@ function HealthCheck({
 
   // DSCR
   f.dscr.slice(0, n).forEach((v, i) => {
-    if (v != null && v < 1) warnings.push(`Anno ${i + 1}: DSCR = ${fmt(v, 2)} — l'azienda non genera abbastanza cassa per servire il debito. La banca considererà il prestito a rischio.`);
+    if (v != null && v < 1) warnings.push(`Anno ${i + 1}: DSCR = ${fmt(v, 2)} â€” l'azienda non genera abbastanza cassa per servire il debito. La banca considererÃ  il prestito a rischio.`);
   });
   f.dscr.slice(0, n).forEach((v, i) => {
-    if (v != null && v >= 1 && v < 1.2) tips.push(`Anno ${i + 1}: DSCR = ${fmt(v, 2)} — sufficiente ma sotto la soglia 1,2× preferita dalle banche. Valuta di ridurre il debito o migliorare l'EBITDA.`);
+    if (v != null && v >= 1 && v < 1.2) tips.push(`Anno ${i + 1}: DSCR = ${fmt(v, 2)} â€” sufficiente ma sotto la soglia 1,2Ã— preferita dalle banche. Valuta di ridurre il debito o migliorare l'EBITDA.`);
   });
 
   // Margini
   if (f.grossMarginPct[last] < 0.25 && f.totalRevenue[last] > 0) warnings.push(`Margine lordo ${fmtPct(f.grossMarginPct[last])} basso. Sotto il 25% la PMI ha poco spazio per coprire i costi fissi. Rivedi pricing o costi di produzione.`);
-  if (f.ebitdaMargin[last] < 0 && f.totalRevenue[last] > 0) warnings.push(`EBITDA negativo all'anno ${n}: l'attività operativa non è sostenibile. I costi fissi superano il margine lordo.`);
+  if (f.ebitdaMargin[last] < 0 && f.totalRevenue[last] > 0) warnings.push(`EBITDA negativo all'anno ${n}: l'attivitÃ  operativa non Ã¨ sostenibile. I costi fissi superano il margine lordo.`);
 
   // Equity negativo
-  if (f.equity[last] < 0) warnings.push(`Patrimonio netto negativo (€ ${fmt(f.equity[last])}): causa di scioglimento ex art. 2484 c.c. Serve ricapitalizzazione o aumento dell'equity.`);
+  if (f.equity[last] < 0) warnings.push(`Patrimonio netto negativo (â‚¬ ${fmt(f.equity[last])}): causa di scioglimento ex art. 2484 c.c. Serve ricapitalizzazione o aumento dell'equity.`);
 
   // Art. 2447 CC: PN < 1/3 capitale sociale
   f.art2447.slice(0, n).forEach((v, i) => {
-    if (v && f.equity[i] >= 0) warnings.push(`Anno ${i + 1}: Patrimonio netto (€ ${fmt(f.equity[i])}) inferiore a 1/3 del Capitale Sociale — obbligo di ricapitalizzazione ex art. 2447 c.c. L'assemblea deve deliberare riduzione CS o ricapitalizzazione.`);
+    if (v && f.equity[i] >= 0) warnings.push(`Anno ${i + 1}: Patrimonio netto (â‚¬ ${fmt(f.equity[i])}) inferiore a 1/3 del Capitale Sociale â€” obbligo di ricapitalizzazione ex art. 2447 c.c. L'assemblea deve deliberare riduzione CS o ricapitalizzazione.`);
   });
 
   // Payback
@@ -4445,18 +4173,18 @@ function HealthCheck({
   if (f.paybackPeriod == null && f.cumCash[last] < 0) warnings.push(`Payback NON raggiunto entro l'orizzonte del piano: la cassa cumulata resta negativa. L'investimento non si ripaga nei tempi previsti.`);
 
   // Tax credit
-  if (f.taxCreditUsed.slice(0, n).some(v => v > 0)) tips.push(`Credito d'imposta utilizzato: € ${fmt(f.taxCreditUsed.slice(0, n).reduce((s, v) => s + v, 0))} in ${n} anni. Risparmio fiscale effettivo.`);
+  if (f.taxCreditUsed.slice(0, n).some(v => v > 0)) tips.push(`Credito d'imposta utilizzato: â‚¬ ${fmt(f.taxCreditUsed.slice(0, n).reduce((s, v) => s + v, 0))} in ${n} anni. Risparmio fiscale effettivo.`);
 
   // Cash
-  if (f.fundingGap.slice(0, n).some(v => v > 0)) warnings.push(`Gap di cassa rilevato: il piano non è finanziariamente sostenibile senza copertura aggiuntiva (equity, finanziamento, o taglio costi).`);
+  if (f.fundingGap.slice(0, n).some(v => v > 0)) warnings.push(`Gap di cassa rilevato: il piano non Ã¨ finanziariamente sostenibile senza copertura aggiuntiva (equity, finanziamento, o taglio costi).`);
 
   // BEP
   f.bepMargin.slice(0, n).forEach((v, i) => {
-    if (v != null && v < 0) warnings.push(`Anno ${i + 1}: i ricavi (€ ${fmt(f.totalRevenue[i])}) sono sotto il break-even (€ ${fmt(f.bep[i])}). L'azienda opera in perdita strutturale.`);
+    if (v != null && v < 0) warnings.push(`Anno ${i + 1}: i ricavi (â‚¬ ${fmt(f.totalRevenue[i])}) sono sotto il break-even (â‚¬ ${fmt(f.bep[i])}). L'azienda opera in perdita strutturale.`);
   });
 
   // HR incidence
-  if (f.hrOnRevenue[last] > 0.6 && f.totalRevenue[last] > 0) tips.push(`Incidenza personale/ricavi ${fmtPct(f.hrOnRevenue[last])} elevata (>60%). Tipica di startup, ma attenzione alla scalabilità.`);
+  if (f.hrOnRevenue[last] > 0.6 && f.totalRevenue[last] > 0) tips.push(`Incidenza personale/ricavi ${fmtPct(f.hrOnRevenue[last])} elevata (>60%). Tipica di startup, ma attenzione alla scalabilitÃ .`);
 
   // Burn rate
   f.runway.slice(0, n).forEach((v, i) => {
@@ -4468,12 +4196,12 @@ function HealthCheck({
 
   // Interest coverage
   f.icr.slice(0, n).forEach((v, i) => {
-    if (v != null && v < 1.5) warnings.push(`Anno ${i + 1}: Interest Coverage Ratio = ${fmt(v, 1)}× — la banca vuole almeno 1,5×. L'EBIT copre a malapena gli interessi.`);
+    if (v != null && v < 1.5) warnings.push(`Anno ${i + 1}: Interest Coverage Ratio = ${fmt(v, 1)}Ã— â€” la banca vuole almeno 1,5Ã—. L'EBIT copre a malapena gli interessi.`);
   });
 
   // D/E
   f.debtEquity.slice(0, n).forEach((v, i) => {
-    if (v != null && v > 3) tips.push(`Anno ${i + 1}: Debt/Equity = ${fmt(v, 1)}× — leva elevata (>3×). I finanziatori potrebbero richiedere garanzie aggiuntive.`);
+    if (v != null && v > 3) tips.push(`Anno ${i + 1}: Debt/Equity = ${fmt(v, 1)}Ã— â€” leva elevata (>3Ã—). I finanziatori potrebbero richiedere garanzie aggiuntive.`);
   });
 
   // Positive
@@ -4526,9 +4254,9 @@ function Note({
   }, "\uD83D\uDCD8 ", /*#__PURE__*/React.createElement("strong", null, "Nota:"), " ", children);
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    CHART.JS WRAPPER COMPONENT
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function ChartCanvas({ type, data, options, height = 280 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
@@ -4547,7 +4275,7 @@ function ChartCanvas({ type, data, options, height = 280 }) {
         plugins: {
           legend: { position: "top", labels: { font: { family: "'DM Sans',sans-serif", size: 11 }, padding: 12, usePointStyle: true } },
           tooltip: { backgroundColor: "#0f2440", titleFont: { family: "'DM Sans',sans-serif" }, bodyFont: { family: "'JetBrains Mono',monospace", size: 11 }, padding: 10, cornerRadius: 8,
-            callbacks: { label: (ctx) => { const v = ctx.parsed.y ?? ctx.parsed; return ctx.dataset.label + ": € " + fmt(v); } }
+            callbacks: { label: (ctx) => { const v = ctx.parsed.y ?? ctx.parsed; return ctx.dataset.label + ": â‚¬ " + fmt(v); } }
           }
         },
         scales: type !== "doughnut" && type !== "pie" && type !== "radar" ? {
@@ -4565,9 +4293,9 @@ function ChartCanvas({ type, data, options, height = 280 }) {
   );
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    CHARTS PANEL (Tab Grafici)
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function ChartsPanel({ financials: f, company }) {
   const n = company.yearsCount;
   const labels = YL.slice(0, n);
@@ -4575,7 +4303,7 @@ function ChartsPanel({ financials: f, company }) {
   
   return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 20 } },
     // Revenue + EBITDA + Net Income trend
-    React.createElement(Card, { title: "📈 Trend Ricavi, EBITDA, Utile Netto" },
+    React.createElement(Card, { title: "ðŸ“ˆ Trend Ricavi, EBITDA, Utile Netto" },
       React.createElement(ChartCanvas, {
         type: "line",
         height: 320,
@@ -4591,7 +4319,7 @@ function ChartsPanel({ financials: f, company }) {
     ),
     // Cash Flow waterfall (stacked bar)
     React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 } },
-      React.createElement(Card, { title: "💰 Cash Flow per Attività" },
+      React.createElement(Card, { title: "ðŸ’° Cash Flow per AttivitÃ " },
         React.createElement(ChartCanvas, {
           type: "bar",
           height: 280,
@@ -4603,10 +4331,10 @@ function ChartsPanel({ financials: f, company }) {
               { label: "CF Finanziamento", data: f.cfFinancing.slice(0, n), backgroundColor: colors.blue + "cc" }
             ]
           },
-          options: { plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ": € " + fmt(ctx.parsed.y) } } } }
+          options: { plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ": â‚¬ " + fmt(ctx.parsed.y) } } } }
         })
       ),
-      React.createElement(Card, { title: "🏦 Cassa Cumulata vs Debito" },
+      React.createElement(Card, { title: "ðŸ¦ Cassa Cumulata vs Debito" },
         React.createElement(ChartCanvas, {
           type: "bar",
           height: 280,
@@ -4622,7 +4350,7 @@ function ChartsPanel({ financials: f, company }) {
     ),
     // Margins radar
     React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 } },
-      React.createElement(Card, { title: "🎯 Composizione Costi (Ultimo Anno)" },
+      React.createElement(Card, { title: "ðŸŽ¯ Composizione Costi (Ultimo Anno)" },
         React.createElement(ChartCanvas, {
           type: "doughnut",
           height: 260,
@@ -4633,10 +4361,10 @@ function ChartsPanel({ financials: f, company }) {
               backgroundColor: [colors.red+"cc", colors.blue+"cc", colors.amber+"cc", colors.purple+"cc", colors.cyan+"cc", colors.pink+"cc"]
             }]
           },
-          options: { plugins: { tooltip: { callbacks: { label: ctx => ctx.label + ": € " + fmt(ctx.parsed) } } } }
+          options: { plugins: { tooltip: { callbacks: { label: ctx => ctx.label + ": â‚¬ " + fmt(ctx.parsed) } } } }
         })
       ),
-      React.createElement(Card, { title: "📊 Margini nel Tempo" },
+      React.createElement(Card, { title: "ðŸ“Š Margini nel Tempo" },
         React.createElement(ChartCanvas, {
           type: "line",
           height: 260,
@@ -4653,7 +4381,7 @@ function ChartsPanel({ financials: f, company }) {
       )
     ),
     // BEP vs Revenue
-    React.createElement(Card, { title: "🎯 Ricavi vs Break-Even Point" },
+    React.createElement(Card, { title: "ðŸŽ¯ Ricavi vs Break-Even Point" },
       React.createElement(ChartCanvas, {
         type: "bar",
         height: 260,
@@ -4669,9 +4397,9 @@ function ChartsPanel({ financials: f, company }) {
   );
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    SENSITIVITY ANALYSIS PANEL
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function SensitivityPanel({ company, revenues, hrs, opexItems, investments, assumptions }) {
   const [sensData, setSensData] = useState(null);
   const [metric, setMetric] = useState("ebitda");
@@ -4684,14 +4412,14 @@ function SensitivityPanel({ company, revenues, hrs, opexItems, investments, assu
     return () => clearTimeout(timer);
   }, [company, revenues, hrs, opexItems, investments, assumptions]);
   
-  if (!sensData) return React.createElement("div", { className: "pulse", style: { textAlign: "center", padding: 40, color: "#6b7280" } }, "Calcolo analisi di sensitività...");
+  if (!sensData) return React.createElement("div", { className: "pulse", style: { textAlign: "center", padding: 40, color: "#6b7280" } }, "Calcolo analisi di sensitivitÃ ...");
   
   const metricLabels = { ebitda: "EBITDA", netIncome: "Utile Netto", cumCash: "Cassa Cumulata" };
   const base = sensData[0]?.[metric]?.base || 0;
   const maxRange = Math.max(...sensData.map(s => Math.abs(s[metric].up - s[metric].down)));
   
   return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
-    React.createElement(Tip, { text: `L'analisi di sensitività mostra come varia il risultato al variare di ogni singolo parametro (±%). I fattori più lunghi sono quelli con maggiore impatto.` }),
+    React.createElement(Tip, { text: `L'analisi di sensitivitÃ  mostra come varia il risultato al variare di ogni singolo parametro (Â±%). I fattori piÃ¹ lunghi sono quelli con maggiore impatto.` }),
     React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
       Object.entries(metricLabels).map(([k, v]) =>
         React.createElement("button", {
@@ -4702,12 +4430,12 @@ function SensitivityPanel({ company, revenues, hrs, opexItems, investments, assu
         }, v)
       )
     ),
-    React.createElement(Card, { title: `📌️ Tornado Chart — ${metricLabels[metric]} (Anno ${company.yearsCount})` },
+    React.createElement(Card, { title: `ðŸŒªï¸ Tornado Chart â€” ${metricLabels[metric]} (Anno ${company.yearsCount})` },
       React.createElement("div", { style: { padding: "8px 0" } },
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 10, color: "#6b7280", fontWeight: 600, marginBottom: 12, padding: "0 60px 0 160px" } },
-          React.createElement("span", null, "▼ Scenario negativo"),
-          React.createElement("span", null, `Base: € ${fmt(base)}`),
-          React.createElement("span", null, "Scenario positivo ▲")
+          React.createElement("span", null, "â–¼ Scenario negativo"),
+          React.createElement("span", null, `Base: â‚¬ ${fmt(base)}`),
+          React.createElement("span", null, "Scenario positivo â–²")
         ),
         sensData.map((s, i) => {
           const d = s[metric];
@@ -4719,7 +4447,7 @@ function SensitivityPanel({ company, revenues, hrs, opexItems, investments, assu
           
           return React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", marginBottom: 8 } },
             React.createElement("span", { style: { width: 150, fontSize: 12, fontWeight: 500, color: "#374151", textAlign: "right", paddingRight: 10, flexShrink: 0 } },
-              s.label, React.createElement("span", { style: { color: "#9ca3af", fontSize: 10 } }, ` ±${Math.round(s.pct * 100)}%`)
+              s.label, React.createElement("span", { style: { color: "#9ca3af", fontSize: 10 } }, ` Â±${Math.round(s.pct * 100)}%`)
             ),
             React.createElement("div", { style: { flex: 1, height: 28, background: "#f3f4f6", borderRadius: 6, position: "relative", overflow: "hidden" } },
               // Base line
@@ -4736,18 +4464,18 @@ function SensitivityPanel({ company, revenues, hrs, opexItems, investments, assu
               } })
             ),
             React.createElement("span", { style: { width: 90, fontSize: 10, fontFamily: "'JetBrains Mono',monospace", color: "#6b7280", paddingLeft: 8, flexShrink: 0 } },
-              `Δ" € ${fmt(Math.abs(range))}`)
+              `Î” â‚¬ ${fmt(Math.abs(range))}`)
           );
         })
       ),
-      React.createElement(Note, null, "Il grafico mostra la variazione del ", metricLabels[metric], " al variare di ogni singolo parametro. I fattori in cima al tornado hanno il maggiore impatto e meritano l'analisi più attenta nella preparazione del business plan.")
+      React.createElement(Note, null, "Il grafico mostra la variazione del ", metricLabels[metric], " al variare di ogni singolo parametro. I fattori in cima al tornado hanno il maggiore impatto e meritano l'analisi piÃ¹ attenta nella preparazione del business plan.")
     )
   );
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MONTE CARLO PANEL
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function MonteCarloPanel({ company, revenues, hrs, opexItems, investments, assumptions }) {
   const [mcData, setMcData] = useState(null);
   const [running, setRunning] = useState(false);
@@ -4772,8 +4500,8 @@ function MonteCarloPanel({ company, revenues, hrs, opexItems, investments, assum
     React.createElement(Tip, { text: "La simulazione Monte Carlo genera centinaia di scenari casuali variando simultaneamente volumi, prezzi, margini e costi. Mostra la distribuzione probabilistica dei risultati per valutare il rischio reale del piano." }),
     React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" } },
       React.createElement(InputField, { label: "Iterazioni", value: iterations, onChange: v => setIterations(Math.max(100, Math.min(5000, v))), style: { maxWidth: 140 } }),
-      React.createElement(Btn, { primary: true, onClick: run, disabled: running }, running ? "â³ Calcolo..." : "🎲 Avvia Simulazione"),
-      mcData && React.createElement("span", { style: { fontSize: 12, color: "#059669", fontWeight: 600 } }, `✓ ${mcData.iterations} simulazioni completate`)
+      React.createElement(Btn, { primary: true, onClick: run, disabled: running }, running ? "â³ Calcolo..." : "ðŸŽ² Avvia Simulazione"),
+      mcData && React.createElement("span", { style: { fontSize: 12, color: "#059669", fontWeight: 600 } }, `âœ“ ${mcData.iterations} simulazioni completate`)
     ),
     mcData && React.createElement(React.Fragment, null,
       React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 8 } },
@@ -4786,7 +4514,7 @@ function MonteCarloPanel({ company, revenues, hrs, opexItems, investments, assum
           }, v)
         )
       ),
-      d && React.createElement(Card, { title: `🎲 Distribuzione ${metricLabels[mcMetric]} (Anno ${company.yearsCount})` },
+      d && React.createElement(Card, { title: `ðŸŽ² Distribuzione ${metricLabels[mcMetric]} (Anno ${company.yearsCount})` },
         // Histogram
         React.createElement(ChartCanvas, {
           type: "bar",
@@ -4801,7 +4529,7 @@ function MonteCarloPanel({ company, revenues, hrs, opexItems, investments, assum
             }]
           },
           options: {
-            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} simulazioni`, title: items => `€ ${items[0].label}` } } },
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} simulazioni`, title: items => `â‚¬ ${items[0].label}` } } },
             scales: { x: { display: false }, y: { title: { display: true, text: "Frequenza" } } }
           }
         }),
@@ -4815,7 +4543,7 @@ function MonteCarloPanel({ company, revenues, hrs, opexItems, investments, assum
           ].map(s => React.createElement("div", { key: s.label, style: { padding: 12, background: s.color + "08", borderRadius: 10, borderLeft: `3px solid ${s.color}` } },
             React.createElement("div", { style: { fontSize: 10, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" } }, s.label),
             React.createElement("div", { style: { fontSize: 16, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: s.color, marginTop: 4 } },
-              mcMetric === "dscr" ? fmt(s.value, 2) + "×" : "€ " + fmt(s.value))
+              mcMetric === "dscr" ? fmt(s.value, 2) + "Ã—" : "â‚¬ " + fmt(s.value))
           ))
         ),
         React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 } },
@@ -4827,28 +4555,28 @@ function MonteCarloPanel({ company, revenues, hrs, opexItems, investments, assum
           React.createElement("div", { style: { padding: 12, background: "#f3f4f6", borderRadius: 10, textAlign: "center" } },
             React.createElement("div", { style: { fontSize: 10, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" } }, "Dev. Standard"),
             React.createElement("div", { style: { fontSize: 16, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: "#374151", marginTop: 4 } },
-              mcMetric === "dscr" ? fmt(d.std, 2) : "€ " + fmt(d.std))
+              mcMetric === "dscr" ? fmt(d.std, 2) : "â‚¬ " + fmt(d.std))
           ),
           React.createElement("div", { style: { padding: 12, background: "#f3f4f6", borderRadius: 10, textAlign: "center" } },
             React.createElement("div", { style: { fontSize: 10, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" } }, "Range (P5-P95)"),
             React.createElement("div", { style: { fontSize: 14, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: "#374151", marginTop: 4 } },
-              mcMetric === "dscr" ? `${fmt(d.p5, 2)} — ${fmt(d.p95, 2)}` : `€ ${fmt(d.p5)} — € ${fmt(d.p95)}`)
+              mcMetric === "dscr" ? `${fmt(d.p5, 2)} â€” ${fmt(d.p95, 2)}` : `â‚¬ ${fmt(d.p5)} â€” â‚¬ ${fmt(d.p95)}`)
           )
         ),
         React.createElement(Note, null,
-          d.probPositive >= 0.8 ? `Con una probabilità dell'${(d.probPositive*100).toFixed(0)}% di risultato positivo, il piano mostra buona resilienza al rischio.` :
-          d.probPositive >= 0.6 ? `La probabilità del ${(d.probPositive*100).toFixed(0)}% di risultato positivo è discreta ma presenta rischi significativi. Considera margini di sicurezza più ampi.` :
+          d.probPositive >= 0.8 ? `Con una probabilitÃ  dell'${(d.probPositive*100).toFixed(0)}% di risultato positivo, il piano mostra buona resilienza al rischio.` :
+          d.probPositive >= 0.6 ? `La probabilitÃ  del ${(d.probPositive*100).toFixed(0)}% di risultato positivo Ã¨ discreta ma presenta rischi significativi. Considera margini di sicurezza piÃ¹ ampi.` :
           `Solo il ${(d.probPositive*100).toFixed(0)}% delle simulazioni ha esito positivo. Il piano presenta un livello di rischio elevato.`,
-          " Il range P5-P95 indica l'intervallo in cui cadrà il risultato nel 90% dei casi."
+          " Il range P5-P95 indica l'intervallo in cui cadrÃ  il risultato nel 90% dei casi."
         )
       )
     )
   );
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    SCENARIO COMPARISON PANEL
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function ScenarioComparePanel({ company, revenues, hrs, opexItems, investments, assumptions, savedScenarios, onSaveScenario }) {
   const n = company.yearsCount;
   const last = n - 1;
@@ -4860,7 +4588,7 @@ function ScenarioComparePanel({ company, revenues, hrs, opexItems, investments, 
       const scenComp = { ...company, scenario: key };
       const scenAssump = { ...assumptions, scenarioMultiplier: { ...assumptions.scenarioMultiplier, [key]: mult } };
       const f = computeFinancials(scenComp, revenues, hrs, opexItems, investments, scenAssump);
-      return { key, label: key === "base" ? "🎯 Base" : key === "pessimistic" ? "⚙️ Pessimistico" : "📌 Ottimistico", mult, financials: f };
+      return { key, label: key === "base" ? "ðŸŽ¯ Base" : key === "pessimistic" ? "âš ï¸ Pessimistico" : "ðŸš€ Ottimistico", mult, financials: f };
     });
   }, [company, revenues, hrs, opexItems, investments, assumptions]);
   
@@ -4869,21 +4597,21 @@ function ScenarioComparePanel({ company, revenues, hrs, opexItems, investments, 
     { label: "EBITDA", key: "ebitda" },
     { label: "Utile Netto", key: "netIncome" },
     { label: "Cassa Cumulata", key: "cumCash" },
-    { label: "DSCR", key: "dscr", dec: 2, suffix: "×" },
+    { label: "DSCR", key: "dscr", dec: 2, suffix: "Ã—" },
     { label: "Margine EBITDA %", key: "ebitdaMargin", pct: true },
     { label: "ROE", key: "roe", pct: true },
     { label: "PFN", key: "pfn" },
     { label: "Current Ratio", key: "currentRatio", dec: 2 },
-    { label: "Break-Even (€)", key: "bep" }
+    { label: "Break-Even (â‚¬)", key: "bep" }
   ];
   
   const colors = { base: "#2563eb", pessimistic: "#dc2626", optimistic: "#059669" };
   
   return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
-    React.createElement(Tip, { text: `Confronto side-by-side dei tre scenari: Pessimistico (−${Math.round((1-assumptions.scenarioMultiplier?.pessimistic||0.85)*100)}% ricavi), Base, Ottimistico (+${Math.round((assumptions.scenarioMultiplier?.optimistic||1.15-1)*100)}% ricavi). Gli scenari modificano solo i volumi di vendita; costi e ipotesi restano invariati.` }),
+    React.createElement(Tip, { text: `Confronto side-by-side dei tre scenari: Pessimistico (âˆ’${Math.round((1-assumptions.scenarioMultiplier?.pessimistic||0.85)*100)}% ricavi), Base, Ottimistico (+${Math.round((assumptions.scenarioMultiplier?.optimistic||1.15-1)*100)}% ricavi). Gli scenari modificano solo i volumi di vendita; costi e ipotesi restano invariati.` }),
     
     // Chart comparison
-    React.createElement(Card, { title: "📊 Confronto Scenari — Ricavi e Utile Netto" },
+    React.createElement(Card, { title: "ðŸ“Š Confronto Scenari â€” Ricavi e Utile Netto" },
       React.createElement(ChartCanvas, {
         type: "bar",
         height: 300,
@@ -4893,12 +4621,12 @@ function ScenarioComparePanel({ company, revenues, hrs, opexItems, investments, 
             { label: `Ricavi ${s.label}`, data: s.financials.totalRevenue.slice(0, n), backgroundColor: colors[s.key] + "66", borderColor: colors[s.key], borderWidth: 1 },
           ])
         },
-        options: { plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ": € " + fmt(ctx.parsed.y) } } } }
+        options: { plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ": â‚¬ " + fmt(ctx.parsed.y) } } } }
       })
     ),
     
     // KPI comparison table
-    React.createElement(Card, { title: "📋 Tabella Comparativa (Anno " + n + ")", accent: true },
+    React.createElement(Card, { title: "ðŸ“‹ Tabella Comparativa (Anno " + n + ")", accent: true },
       React.createElement("div", { style: { overflowX: "auto" } },
         React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans',sans-serif" } },
           React.createElement("thead", null,
@@ -4913,7 +4641,7 @@ function ScenarioComparePanel({ company, revenues, hrs, opexItems, investments, 
               scenarios.map(s => {
                 const v = s.financials[m.key]?.[last];
                 return React.createElement("td", { key: s.key, style: { padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, color: v < 0 ? "#dc2626" : "#374151" } },
-                  m.pct ? fmtPct(v) : m.dec ? fmt(v, m.dec) + (m.suffix || "") : "€ " + fmt(v));
+                  m.pct ? fmtPct(v) : m.dec ? fmt(v, m.dec) + (m.suffix || "") : "â‚¬ " + fmt(v));
               })
             ))
           )
@@ -4922,12 +4650,12 @@ function ScenarioComparePanel({ company, revenues, hrs, opexItems, investments, 
     ),
     
     // Saved scenarios
-    savedScenarios.length > 0 && React.createElement(Card, { title: "📂 Scenari Salvati" },
+    savedScenarios.length > 0 && React.createElement(Card, { title: "ðŸ“‚ Scenari Salvati" },
       React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
         savedScenarios.map((s, i) => React.createElement("div", { key: i, style: { padding: "10px 14px", background: "#f9fafb", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" } },
           React.createElement("div", null,
-            React.createElement("strong", null, s.name), " — ",
-            React.createElement("span", { style: { fontSize: 12, color: "#6b7280" } }, `Ricavi: € ${fmt(s.revenue)} | EBITDA: € ${fmt(s.ebitda)} | Utile: € ${fmt(s.netIncome)}`)
+            React.createElement("strong", null, s.name), " â€” ",
+            React.createElement("span", { style: { fontSize: 12, color: "#6b7280" } }, `Ricavi: â‚¬ ${fmt(s.revenue)} | EBITDA: â‚¬ ${fmt(s.ebitda)} | Utile: â‚¬ ${fmt(s.netIncome)}`)
           ),
           React.createElement("span", { style: { fontSize: 11, color: "#9ca3af" } }, s.date)
         ))
@@ -4943,13 +4671,13 @@ function ScenarioComparePanel({ company, revenues, hrs, opexItems, investments, 
         ebitda: scenarios[0].financials.ebitda[last],
         netIncome: scenarios[0].financials.netIncome[last]
       });
-    } }, "💾 Salva Scenario Corrente")
+    } }, "ðŸ’¾ Salva Scenario Corrente")
   );
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    BILANCIO IMPORT PANEL (for Step 0)
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function ImportBilancioPanel({ setCompany, setRevenues, setHrs, setOpexItems, setInvestments, setAssumptions, company }) {
   const [status, setStatus] = useState(null);
   const [parsedData, setParsedData] = useState(null);
@@ -4980,7 +4708,7 @@ function ImportBilancioPanel({ setCompany, setRevenues, setHrs, setOpexItems, se
   
   // Organize parsed data for display
   const displaySections = parsedData ? [
-    { title: "📊 Conto Economico", items: [
+    { title: "ðŸ“Š Conto Economico", items: [
       ["Ricavi vendite", parsedData.ricavi],
       ["Valore produzione", parsedData.valoreProduzione],
       ["Materie prime", parsedData.materiePrime],
@@ -4995,7 +4723,7 @@ function ImportBilancioPanel({ setCompany, setRevenues, setHrs, setOpexItems, se
       ["Imposte", parsedData.imposte],
       ["Utile netto", parsedData.utileNetto],
     ].filter(([_, v]) => v) },
-    { title: "🏛️ Stato Patrimoniale", items: [
+    { title: "ðŸ›ï¸ Stato Patrimoniale", items: [
       ["Capitale sociale", parsedData.capitaleSociale],
       ["Patrimonio netto", parsedData.patrimonioNetto],
       ["Immobilizzazioni immat.", parsedData.immobilizzazioniImmateriali],
@@ -5008,29 +4736,29 @@ function ImportBilancioPanel({ setCompany, setRevenues, setHrs, setOpexItems, se
       ["Debiti totali", parsedData.debitiTotali],
       ["TFR", parsedData.tfr],
     ].filter(([_, v]) => v) },
-    { title: "👥 Organico", items: [
+    { title: "ðŸ‘¥ Organico", items: [
       ["Dipendenti", parsedData.dipendenti],
       ["Costo medio", parsedData.personale && parsedData.dipendenti ? Math.round(parsedData.personale / parsedData.dipendenti) : null],
     ].filter(([_, v]) => v) }
   ].filter(s => s.items.length > 0) : [];
   
-  return React.createElement(Card, { title: "📥 Importa Bilancio Esistente (PDF o Excel)" },
+  return React.createElement(Card, { title: "ðŸ“¥ Importa Bilancio Esistente (PDF o Excel)" },
     React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
       React.createElement("p", { style: { fontSize: 13, color: "#4b5563", lineHeight: 1.6 } },
         "Carica un bilancio in formato ", React.createElement("strong", null, "PDF"), " o ", React.createElement("strong", null, "Excel"),
         " (.pdf, .xlsx, .xls, .csv) per pre-compilare automaticamente il piano economico. Il parser riconosce le voci standard del bilancio CEE italiano (abbreviato e ordinario)."),
       React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
         React.createElement("input", { ref: inputRef, type: "file", accept: ".pdf,.xlsx,.xls,.csv", onChange: handleFile, style: { display: "none" } }),
-        React.createElement(Btn, { primary: true, onClick: () => inputRef.current.click() }, "📂 Carica Bilancio (PDF/Excel)"),
+        React.createElement(Btn, { primary: true, onClick: () => inputRef.current.click() }, "ðŸ“‚ Carica Bilancio (PDF/Excel)"),
         status === "loading" && React.createElement("span", { className: "pulse", style: { fontSize: 12, color: "#6b7280" } }, "â³ Analisi del documento in corso..."),
-        status === "applied" && React.createElement("span", { style: { fontSize: 12, color: "#059669", fontWeight: 600 } }, "✅ Dati importati con successo!"),
-        status === "error" && React.createElement("span", { style: { fontSize: 12, color: "#dc2626", fontWeight: 600 } }, "❌ ", errorMsg)
+        status === "applied" && React.createElement("span", { style: { fontSize: 12, color: "#059669", fontWeight: 600 } }, "âœ… Dati importati con successo!"),
+        status === "error" && React.createElement("span", { style: { fontSize: 12, color: "#dc2626", fontWeight: 600 } }, "âŒ ", errorMsg)
       ),
       
       // Parsed data display
       parsedData && status === "parsed" && React.createElement("div", { style: { padding: 16, background: "#f9fafb", borderRadius: 12, border: "1px solid #e5e7eb" } },
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
-          React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#1e3a5f" } }, "📋 Dati estratti dal bilancio"),
+          React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#1e3a5f" } }, "ðŸ“‹ Dati estratti dal bilancio"),
           React.createElement("span", { style: { fontSize: 10, color: "#9ca3af", background: "#f3f4f6", padding: "2px 8px", borderRadius: 4 } },
             `Fonte: ${parsedData._source === "pdf" ? "PDF" : "Excel"} | ${parsedData._allLines || "?"} voci analizzate`)
         ),
@@ -5061,15 +4789,15 @@ function ImportBilancioPanel({ setCompany, setRevenues, setHrs, setOpexItems, se
               const hr = parsedData.personale || 0;
               if (realEBITDA && parsedData.ricavi) {
                 const gm = ((realEBITDA + hr + overhead) / parsedData.ricavi * 100).toFixed(1);
-                return `💡 Margine lordo derivato: ${gm}% (calcolato da EBITDA reale ${fmtEur(realEBITDA)} + personale ${fmtEur(hr)} + overhead ${fmtEur(overhead)} / ricavi). I costi per servizi (B.7) sono assorbiti nel margine lordo.`;
+                return `ðŸ’¡ Margine lordo derivato: ${gm}% (calcolato da EBITDA reale ${fmtEur(realEBITDA)} + personale ${fmtEur(hr)} + overhead ${fmtEur(overhead)} / ricavi). I costi per servizi (B.7) sono assorbiti nel margine lordo.`;
               }
               return "";
             })()
           )
         ),
         React.createElement("div", { style: { marginTop: 12, display: "flex", gap: 8 } },
-          React.createElement(Btn, { primary: true, onClick: applyData }, "✅ Applica al Piano Economico"),
-          React.createElement(Btn, { onClick: () => { setParsedData(null); setStatus(null); } }, "❌ Annulla")
+          React.createElement(Btn, { primary: true, onClick: applyData }, "âœ… Applica al Piano Economico"),
+          React.createElement(Btn, { onClick: () => { setParsedData(null); setStatus(null); } }, "âŒ Annulla")
         )
       ),
       
@@ -5077,7 +4805,7 @@ function ImportBilancioPanel({ setCompany, setRevenues, setHrs, setOpexItems, se
         "Formati supportati: ", React.createElement("strong", null, "PDF"), " (bilancio depositato, XBRL convertito), ",
         React.createElement("strong", null, "Excel"), " (esportazioni da TeamSystem, Zucchetti, Buffetti, altri gestionali). ",
         "Il parser cerca automaticamente le voci CEE: ricavi (A.1), costi per servizi (B.7), personale (B.9), ammortamenti (B.10), ",
-        "patrimonio netto, debiti finanziari, crediti, disponibilità liquide, ecc. Per PDF, viene estratto il testo e analizzato con pattern matching. ",
+        "patrimonio netto, debiti finanziari, crediti, disponibilitÃ  liquide, ecc. Per PDF, viene estratto il testo e analizzato con pattern matching. ",
         "Verifica sempre i dati estratti prima di applicarli al piano."
       )
     )
@@ -5091,22 +4819,11 @@ function StepResults({
   hrs,
   opexItems,
   investments,
-  loans,
-  yearLabels: yl,
   savedScenarios,
   onSaveScenario
 }) {
   const n = company.yearsCount;
   const [tab, setTab] = useState("dashboard");
-  const isExisting = company.companyType === "existing" || company.companyType === "crisis";
-  const hasAnno0 = isExisting && f.anno0 && f.anno0.ricavi > 0;
-  const hasAnnoM1 = isExisting && f.annoM1 && f.annoM1.ricavi > 0;
-  // Build column headers for tables with Anno 0/M1
-  const colHeaders = [];
-  if (hasAnnoM1) colHeaders.push({ label: String(company.startYear - 2), type: "storico" });
-  if (hasAnno0) colHeaders.push({ label: String(company.startYear - 1), type: "consuntivo" });
-  for (let i = 0; i < n; i++) colHeaders.push({ label: String(company.startYear + i), type: "previsionale" });
-  
   const tabs = [{
     id: "dashboard",
     label: "\uD83D\uDCCA Dashboard"
@@ -5117,17 +4834,14 @@ function StepResults({
     id: "fonti",
     label: "\uD83D\uDCB0 Fonti/Impieghi"
   }, {
-    id: "benchmark",
-    label: "\uD83C\uDFAF Benchmark"
-  }, {
     id: "charts",
     label: "\uD83D\uDCC8 Grafici"
   }, {
     id: "is",
-    label: "CE Riclassificato"
+    label: "Conto Economico"
   }, {
     id: "bs",
-    label: "SP Riclassificato"
+    label: "Stato Patrimoniale"
   }, {
     id: "cf",
     label: "Cash Flow"
@@ -5227,57 +4941,35 @@ function StepResults({
       React.createElement("span", { style: { fontSize: 28 } }, f.fontiImpieghi.delta >= 0 ? "\u2705" : "\u274C"),
       React.createElement("div", null,
         React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#1e3a5f" } }, "Fonti vs Impieghi"),
-        React.createElement("div", { style: { fontSize: 12, color: "#6b7280" } }, "Fonti: " + fmtEur(f.fontiImpieghi.fonti.totale) + " —” Impieghi: " + fmtEur(f.fontiImpieghi.impieghi.totale))
+        React.createElement("div", { style: { fontSize: 12, color: "#6b7280" } }, "Fonti: " + fmtEur(f.fontiImpieghi.fonti.totale) + " — Impieghi: " + fmtEur(f.fontiImpieghi.impieghi.totale))
       )
     )
   ),
-  // V3: Ponte Storico -> Previsionale (from bilpianoAnno0/AnnoM1)
-  hasAnno0 && React.createElement(Card, { title: "\uD83D\uDCCA Ponte Storico \u2192 Previsionale" },
-    // Delta % Warnings  
-    f.delta0to1 && React.createElement("div", { style: { marginBottom: 16 } },
-      [["Ricavi", f.delta0to1.ricavi], ["EBITDA", f.delta0to1.ebitda], ["Utile", f.delta0to1.utile], ["Personale", f.delta0to1.personale]].filter(([_, d]) => d !== null && Math.abs(d) > 0.30).map(([label, delta], i) =>
-        React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 4, background: "#fef3c7", borderRadius: 8, border: "1px solid #fcd34d", fontSize: 12 } },
-          React.createElement("span", null, "\u26A0\uFE0F"),
-          React.createElement("span", null, React.createElement("strong", null, label), ": variazione del ", React.createElement("strong", { style: { color: delta > 0 ? "#059669" : "#dc2626" } }, (delta > 0 ? "+" : "") + (delta * 100).toFixed(0) + "%"),
-            " da " + (company.startYear - 1) + " a " + company.startYear + ". ", Math.abs(delta) > 0.50 ? "Giustificare con evidenze nella Nota Metodologica." : "Verificare coerenza con le ipotesi di piano.")
-        )
-      )
-    ),
+  // #8 Storico bridge (if enabled)
+  company.storico?.hasStorico && React.createElement(Card, { title: "\uD83D\uDCCA Ponte Storico \u2192 Previsionale" },
     React.createElement("div", { style: { overflowX: "auto" } },
       React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
         React.createElement("thead", null,
           React.createElement("tr", null,
             React.createElement("th", { style: { textAlign: "left", padding: "8px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11, color: "#6b7280" } }, "KPI"),
-            ...colHeaders.map((ch, i) => React.createElement("th", { key: i, style: { textAlign: "right", padding: "8px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11,
-              color: ch.type === "previsionale" ? "#1e3a5f" : "#9ca3af", fontWeight: ch.type === "previsionale" ? 700 : 400,
-              borderRight: ch.type === "consuntivo" ? "2px dashed #d97706" : "none",
-              background: ch.type === "consuntivo" ? "#fefce8" : ch.type === "storico" ? "#f9fafb" : "transparent" } }, ch.label))
+            React.createElement("th", { style: { textAlign: "right", padding: "8px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11, color: "#9ca3af" } }, "Anno -2"),
+            React.createElement("th", { style: { textAlign: "right", padding: "8px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11, color: "#9ca3af" } }, "Anno -1"),
+            ...YL.slice(0, n).map((y, i) => React.createElement("th", { key: i, style: { textAlign: "right", padding: "8px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11, color: "#1e3a5f", fontWeight: 700 } }, y))
           )
         ),
         React.createElement("tbody", null,
-          [["Ricavi", "ricavi", "totalRevenue"], ["Valore Aggiunto", "valoreAggiunto", null], ["EBITDA (MOL)", "ebitda", "ebitda"], ["EBIT", "ebit", "ebit"], ["Utile Netto", "utileNetto", "netIncome"], [null], ["Patrimonio Netto", "patrimonioNetto", "equity"], ["Debiti Finanziari", "debitiFinanziari", "netDebt"], ["Cassa", "cassa", null]].map(([label, bilKey, finKey], ri) => {
-            if (label === null) return React.createElement("tr", { key: ri }, React.createElement("td", { colSpan: colHeaders.length + 1, style: { height: 2, background: "#e5e7eb" } }));
-            return React.createElement("tr", { key: ri, style: { background: ri % 2 === 0 ? "#f9fafb" : "#fff" } },
-              React.createElement("td", { style: { padding: "8px 12px", fontWeight: 600, color: "#374151", fontSize: 12 } }, label),
-              ...colHeaders.map((ch, ci) => {
-                let val = 0;
-                if (ch.type === "storico" && hasAnnoM1 && bilKey) val = f.annoM1[bilKey] || 0;
-                else if (ch.type === "consuntivo" && hasAnno0 && bilKey) val = f.anno0[bilKey] || 0;
-                else if (ch.type === "previsionale" && finKey) { const idx = ci - colHeaders.filter(c => c.type !== "previsionale").length; val = f[finKey]?.[idx] || 0; }
-                else if (ch.type === "previsionale" && !finKey && bilKey === "cassa") { const idx = ci - colHeaders.filter(c => c.type !== "previsionale").length; val = f.cash?.[idx] || 0; }
-                return React.createElement("td", { key: ci, style: { padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono',monospace", fontSize: 12,
-                  color: val < 0 ? "#dc2626" : ch.type === "previsionale" ? "#374151" : "#6b7280",
-                  fontWeight: ch.type === "previsionale" ? 600 : 400,
-                  borderRight: ch.type === "consuntivo" ? "2px dashed #d97706" : "none",
-                  background: ch.type === "consuntivo" ? "#fefce8" : ch.type === "storico" ? "#f9fafb" : "transparent"
-                } }, fmtEur(val));
-              })
-            );
-          })
+          [["Ricavi", "ricavi", "totalRevenue"], ["EBITDA", "ebitda", "ebitda"], ["Utile Netto", "utile", "netIncome"], ["Patrimonio Netto", "pn", "equity"]].map(([label, stoKey, finKey], ri) =>
+            React.createElement("tr", { key: ri, style: { background: ri % 2 === 0 ? "#f9fafb" : "#fff" } },
+              React.createElement("td", { style: { padding: "8px 12px", fontWeight: 600, color: "#374151" } }, label),
+              React.createElement("td", { style: { padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono',monospace", color: "#9ca3af" } }, fmtEur(company.storico?.[stoKey + "M2"] || 0)),
+              React.createElement("td", { style: { padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono',monospace", color: "#6b7280", borderRight: "2px dashed #d1d5db" } }, fmtEur(company.storico?.[stoKey + "M1"] || 0)),
+              ...YEARS.slice(0, n).map((_, i) => React.createElement("td", { key: i, style: { padding: "8px 12px", textAlign: "right", fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, color: f[finKey][i] < 0 ? "#dc2626" : "#374151" } }, fmtEur(f[finKey][i])))
+            )
+          )
         )
       )
     ),
-    React.createElement(Note, null, "La riga gialla \u00E8 il consuntivo (bilancio depositato). Le colonne blu sono previsionali. Variazioni >\u00B130% vengono segnalate con warning arancione.")
+    React.createElement(Note, null, "La linea tratteggiata separa i dati storici (consuntivi) da quelli previsionali. L'analista bancario verificherà la coerenza: una crescita improvvisa dal dato storico al previsionale richiede giustificazioni solide nella Nota Metodologica.")
   ),
   /*#__PURE__*/React.createElement(Card, {
     title: "Cruscotto Finanziario \u2014 Ultimo Anno"
@@ -5433,7 +5125,7 @@ function StepResults({
       fontWeight: 600,
       marginTop: 4
     }
-  }, f.runway[i] != null ? Math.round(f.runway[i]) + " mesi di runway" : "—")) : /*#__PURE__*/React.createElement("div", {
+  }, f.runway[i] != null ? Math.round(f.runway[i]) + " mesi di runway" : "â€”")) : /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 14,
       color: "#059669",
@@ -5497,15 +5189,15 @@ function StepResults({
     style: {
       marginBottom: 10
     }
-  }, "Il piano prevede ", /*#__PURE__*/React.createElement("strong", null, "ricavi di \u20AC ", fmt(f.totalRevenue[last])), " all'Anno ", n, f.revenueCAGR > 0 ? `, con un CAGR del ${fmtPct(f.revenueCAGR)}` : "", ".", f.ebitdaMargin[last] >= 0.1 ? ` L'EBITDA margin del ${fmtPct(f.ebitdaMargin[last])} indica una buona efficienza operativa.` : f.ebitdaMargin[last] >= 0 ? ` L'EBITDA margin del ${fmtPct(f.ebitdaMargin[last])} è contenuto ma positivo.` : ` L'EBITDA è negativo: il business non copre i costi operativi.`), /*#__PURE__*/React.createElement("p", {
+  }, "Il piano prevede ", /*#__PURE__*/React.createElement("strong", null, "ricavi di \u20AC ", fmt(f.totalRevenue[last])), " all'Anno ", n, f.revenueCAGR > 0 ? `, con un CAGR del ${fmtPct(f.revenueCAGR)}` : "", ".", f.ebitdaMargin[last] >= 0.1 ? ` L'EBITDA margin del ${fmtPct(f.ebitdaMargin[last])} indica una buona efficienza operativa.` : f.ebitdaMargin[last] >= 0 ? ` L'EBITDA margin del ${fmtPct(f.ebitdaMargin[last])} Ã¨ contenuto ma positivo.` : ` L'EBITDA Ã¨ negativo: il business non copre i costi operativi.`), /*#__PURE__*/React.createElement("p", {
     style: {
       marginBottom: 10
     }
-  }, f.netIncome[last] >= 0 ? `L'utile netto di € ${fmt(f.netIncome[last])} ` : `La perdita netta di € ${fmt(Math.abs(f.netIncome[last]))} `, f.netMargin[last] >= 0.05 ? "rappresenta un margine netto sano. " : f.netMargin[last] >= 0 ? "è positivo ma marginale. " : "richiede interventi strutturali. ", f.equity[last] > 0 ? `Il patrimonio netto di € ${fmt(f.equity[last])} garantisce solidità patrimoniale.` : `Il patrimonio netto negativo (€ ${fmt(f.equity[last])}) richiede ricapitalizzazione urgente.`), /*#__PURE__*/React.createElement("p", {
+  }, f.netIncome[last] >= 0 ? `L'utile netto di â‚¬ ${fmt(f.netIncome[last])} ` : `La perdita netta di â‚¬ ${fmt(Math.abs(f.netIncome[last]))} `, f.netMargin[last] >= 0.05 ? "rappresenta un margine netto sano. " : f.netMargin[last] >= 0 ? "Ã¨ positivo ma marginale. " : "richiede interventi strutturali. ", f.equity[last] > 0 ? `Il patrimonio netto di â‚¬ ${fmt(f.equity[last])} garantisce soliditÃ  patrimoniale.` : `Il patrimonio netto negativo (â‚¬ ${fmt(f.equity[last])}) richiede ricapitalizzazione urgente.`), /*#__PURE__*/React.createElement("p", {
     style: {
       marginBottom: 10
     }
-  }, f.dscr[last] != null ? `Il DSCR di ${fmt(f.dscr[last], 2)}× ${f.dscr[last] >= 1.2 ? "supera la soglia bancaria di 1,2×, rendendo il piano finanziabile." : "è sotto la soglia bancaria di 1,2×, rendendo problematico l'accesso al credito."} ` : "", f.pfn[last] >= 0 ? `La Posizione Finanziaria Netta positiva (€ ${fmt(f.pfn[last])}) indica autosufficienza finanziaria.` : `La PFN negativa (€ ${fmt(f.pfn[last])}) evidenzia dipendenza dal credito bancario.`), f.paybackPeriod != null && /*#__PURE__*/React.createElement("p", {
+  }, f.dscr[last] != null ? `Il DSCR di ${fmt(f.dscr[last], 2)}Ã— ${f.dscr[last] >= 1.2 ? "supera la soglia bancaria di 1,2Ã—, rendendo il piano finanziabile." : "Ã¨ sotto la soglia bancaria di 1,2Ã—, rendendo problematico l'accesso al credito."} ` : "", f.pfn[last] >= 0 ? `La Posizione Finanziaria Netta positiva (â‚¬ ${fmt(f.pfn[last])}) indica autosufficienza finanziaria.` : `La PFN negativa (â‚¬ ${fmt(f.pfn[last])}) evidenzia dipendenza dal credito bancario.`), f.paybackPeriod != null && /*#__PURE__*/React.createElement("p", {
     style: {
       marginBottom: 10
     }
@@ -5920,37 +5612,7 @@ function StepResults({
     n: n
   }), /*#__PURE__*/React.createElement(Note, null, "Il ", /*#__PURE__*/React.createElement("strong", null, "BEP"), " indica il fatturato minimo per pareggiare. Il ", /*#__PURE__*/React.createElement("strong", null, "margine di sicurezza"), " \xE8 quanto i ricavi superano il BEP: se ", "<", " 10%, basta un piccolo calo delle vendite per andare in perdita. La ", /*#__PURE__*/React.createElement("strong", null, "PFN"), " positiva indica che l'azienda ha pi\xF9 liquidit\xE0 che debiti \u2014 condizione ideale per negoziare con le banche. Il ", /*#__PURE__*/React.createElement("strong", null, "NWC"), " positivo indica che l'attivo corrente copre i debiti a breve."))),
     
-    /* ═══ NEW TABS (at top level, outside KPI div) ═══ */
-    // V3: Benchmark Tab
-    tab === "benchmark" && React.createElement(Card, { title: "\uD83C\uDFAF Confronto con Benchmark di Settore" },
-      React.createElement(Tip, { text: "Confronto dei KPI del piano con i valori mediani del settore " + (SECTOR_TEMPLATES[company.sectorTemplate]?.label || "Altro") + ". I benchmark sono indicativi e basati su dati aggregati." }),
-      React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
-        React.createElement("thead", null,
-          React.createElement("tr", null,
-            React.createElement("th", { style: { textAlign: "left", padding: "10px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11, color: "#6b7280" } }, "KPI"),
-            React.createElement("th", { style: { textAlign: "center", padding: "10px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11, color: "#1e3a5f" } }, "Tuo Piano (Anno " + n + ")"),
-            React.createElement("th", { style: { textAlign: "center", padding: "10px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11, color: "#6b7280" } }, "Benchmark Settore"),
-            React.createElement("th", { style: { textAlign: "center", padding: "10px 12px", borderBottom: "2px solid #1e3a5f", fontSize: 11, color: "#6b7280" } }, "Valutazione")
-          )
-        ),
-        React.createElement("tbody", null,
-          (f.benchmarks?.comparison || []).map((b, i) => {
-            const isGood = b.invert ? (b.actual <= b.benchmark * 1.1) : (b.actual >= b.benchmark * 0.9);
-            const isBad = b.invert ? (b.actual > b.benchmark * 1.5) : (b.actual < b.benchmark * 0.5);
-            const icon = isGood ? "\uD83D\uDFE2" : isBad ? "\uD83D\uDD34" : "\uD83D\uDFE1";
-            const fmtVal = b.unit === "pct" ? fmtPct(b.actual) : b.unit === "gg" ? (b.actual || 0) + " gg" : (b.actual || 0).toFixed(1) + "\u00D7";
-            const fmtBench = b.unit === "pct" ? fmtPct(b.benchmark) : b.unit === "gg" ? b.benchmark + " gg" : b.benchmark.toFixed(1) + "\u00D7";
-            return React.createElement("tr", { key: i, style: { background: i % 2 === 0 ? "#f9fafb" : "#fff" } },
-              React.createElement("td", { style: { padding: "10px 12px", fontWeight: 600, color: "#374151" } }, b.kpi),
-              React.createElement("td", { style: { padding: "10px 12px", textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color: isGood ? "#059669" : isBad ? "#dc2626" : "#d97706" } }, fmtVal),
-              React.createElement("td", { style: { padding: "10px 12px", textAlign: "center", fontFamily: "'JetBrains Mono',monospace", color: "#6b7280" } }, fmtBench),
-              React.createElement("td", { style: { padding: "10px 12px", textAlign: "center", fontSize: 20 } }, icon)
-            );
-          })
-        )
-      ),
-      React.createElement(Note, null, "I benchmark settoriali sono basati su dati aggregati ISTAT/Cerved per il settore ", React.createElement("strong", null, SECTOR_TEMPLATES[company.sectorTemplate]?.label || "Altro"), ". Sono indicativi e possono variare per dimensione aziendale, area geografica e sotto-settore.")
-    ),
+    /* â”€â”€â”€ NEW TABS (at top level, outside KPI div) â”€â”€â”€ */
     tab === "charts" && React.createElement(ChartsPanel, { financials: f, company }),
     tab === "sensitivity" && React.createElement(SensitivityPanel, { company, revenues, hrs, opexItems, investments, assumptions }),
     tab === "montecarlo" && React.createElement(MonteCarloPanel, { company, revenues, hrs, opexItems, investments, assumptions }),
@@ -5959,7 +5621,7 @@ function StepResults({
     // #10 RATING BANCARIO TAB
     tab === "rating" && React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
       React.createElement(Tip, { text: "Il Rating Sintetico simula la valutazione che una banca farebbe del piano, basandosi sui KPI più rilevanti secondo le linee guida EBA e la prassi bancaria italiana. Non sostituisce un rating ufficiale ma ti aiuta a capire come il piano verrà percepito." }),
-      React.createElement(Card, { title: "\uD83C\uDFE6 Rating Sintetico —” Scoring Bancario", accent: true },
+      React.createElement(Card, { title: "\uD83C\uDFE6 Rating Sintetico — Scoring Bancario", accent: true },
         React.createElement("div", { style: { display: "flex", gap: 24, alignItems: "center", marginBottom: 20, flexWrap: "wrap" } },
           React.createElement("div", { style: { width: 120, height: 120, borderRadius: "50%", border: `6px solid ${f.rating.gradeColor}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#fff", boxShadow: `0 0 20px ${f.rating.gradeColor}33` } },
             React.createElement("div", { style: { fontSize: 40, fontWeight: 900, fontFamily: "'Playfair Display',serif", color: f.rating.gradeColor } }, f.rating.grade),
@@ -5976,7 +5638,7 @@ function StepResults({
         React.createElement("div", { style: { display: "grid", gap: 8 } },
           f.rating.details.map((d, i) => React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "140px 80px 1fr 60px 80px", gap: 8, alignItems: "center", padding: "8px 12px", background: i % 2 === 0 ? "#f9fafb" : "#fff", borderRadius: 8, fontSize: 13 } },
             React.createElement("span", { style: { fontWeight: 600, color: "#374151" } }, d.kpi),
-            React.createElement("span", { style: { fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: d.value < 0 ? "#dc2626" : "#374151" } }, typeof d.value === "number" ? (d.kpi.includes("Margin") || d.kpi.includes("ROE") ? fmtPct(d.value) : d.kpi.includes("Patrimonio") || d.kpi.includes("Trend") ? fmtEur(d.value) : fmt(d.value, 2)) : "—”"),
+            React.createElement("span", { style: { fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: d.value < 0 ? "#dc2626" : "#374151" } }, typeof d.value === "number" ? (d.kpi.includes("Margin") || d.kpi.includes("ROE") ? fmtPct(d.value) : d.kpi.includes("Patrimonio") || d.kpi.includes("Trend") ? fmtEur(d.value) : fmt(d.value, 2)) : "—"),
             React.createElement("div", { style: { height: 6, background: "#f3f4f6", borderRadius: 3, overflow: "hidden" } },
               React.createElement("div", { style: { height: "100%", width: (d.score / d.max * 100) + "%", background: d.score >= d.max * 0.8 ? "#059669" : d.score >= d.max * 0.5 ? "#d97706" : "#dc2626", borderRadius: 3 } })
             ),
@@ -6027,7 +5689,7 @@ function StepResults({
           React.createElement("span", { style: { fontSize: 14, fontWeight: 700 } }, f.fontiImpieghi.delta >= 0 ? "\u2705 Le fonti coprono gli impieghi" : "\u26A0\uFE0F Le fonti NON coprono gli impieghi"),
           React.createElement("span", { style: { fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 700, color: f.fontiImpieghi.delta >= 0 ? "#059669" : "#dc2626" } }, (f.fontiImpieghi.delta >= 0 ? "+" : "") + fmtEur(f.fontiImpieghi.delta))
         ),
-        React.createElement(Note, null, "Le Fonti devono essere â‰¥ Impieghi. Un delta negativo indica che servono risorse aggiuntive. La composizione ottimale prevede almeno il 20-30% di equity rispetto al totale fonti.")
+        React.createElement(Note, null, "Le Fonti devono essere ≥ Impieghi. Un delta negativo indica che servono risorse aggiuntive. La composizione ottimale prevede almeno il 20-30% di equity rispetto al totale fonti.")
       ),
       // #2 Spese ammissibili vs non ammissibili
       f.pianoAgevolazioni.totaleEleggibile > 0 && React.createElement(Card, { title: "\uD83D\uDCCB Spese Ammissibili vs Non Ammissibili (per Bandi)" },
@@ -6039,8 +5701,8 @@ function StepResults({
           ...investments.map((inv, i) => React.createElement(React.Fragment, { key: i },
             React.createElement("div", { style: { padding: "6px 8px", borderBottom: "1px solid #f3f4f6", color: inv.isEleggibile ? "#374151" : "#9ca3af" } }, inv.name || "Investimento " + (i+1), !inv.isEleggibile && " (non elegg.)"),
             React.createElement("div", { style: { padding: "6px 8px", borderBottom: "1px solid #f3f4f6", textAlign: "right", fontFamily: "'JetBrains Mono',monospace" } }, fmtEur(inv.cost)),
-            React.createElement("div", { style: { padding: "6px 8px", borderBottom: "1px solid #f3f4f6", textAlign: "right", fontSize: 11 } }, (CATEGORIE_AGEVOLATIVE.find(c => c.value === inv.categoriaAgevolativa) || {}).label || "—”"),
-            React.createElement("div", { style: { padding: "6px 8px", borderBottom: "1px solid #f3f4f6", textAlign: "right", fontFamily: "'JetBrains Mono',monospace", color: "#059669" } }, inv.percentualeAgevolazione > 0 ? fmtEur(inv.cost * inv.percentualeAgevolazione) + " (" + Math.round(inv.percentualeAgevolazione * 100) + "%)" : "—”")
+            React.createElement("div", { style: { padding: "6px 8px", borderBottom: "1px solid #f3f4f6", textAlign: "right", fontSize: 11 } }, (CATEGORIE_AGEVOLATIVE.find(c => c.value === inv.categoriaAgevolativa) || {}).label || "—"),
+            React.createElement("div", { style: { padding: "6px 8px", borderBottom: "1px solid #f3f4f6", textAlign: "right", fontFamily: "'JetBrains Mono',monospace", color: "#059669" } }, inv.percentualeAgevolazione > 0 ? fmtEur(inv.cost * inv.percentualeAgevolazione) + " (" + Math.round(inv.percentualeAgevolazione * 100) + "%)" : "—")
           ))
         ),
         React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 16 } },
@@ -6064,7 +5726,7 @@ function StepResults({
     tab === "ammortamento" && React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
       React.createElement(Tip, { text: "Il piano di ammortamento finanziario mostra la ripartizione rata per rata del debito tra quota capitale e quota interessi. È un allegato standard richiesto dalle banche per qualsiasi finanziamento." }),
       f.amortizationSchedule.length > 0 ? f.amortizationSchedule.map((loan, li) =>
-        React.createElement(Card, { key: li, title: `\uD83D\uDCCB Finanziamento Anno ${loan.loanYear} —” ${fmtEur(loan.principal)} al ${(loan.rate * 100).toFixed(1)}% per ${loan.duration} anni` + (loan.preammortamento > 0 ? ` (${loan.preammortamento} mesi preammortamento)` : ""), accent: true },
+        React.createElement(Card, { key: li, title: `\uD83D\uDCCB Finanziamento Anno ${loan.loanYear} — ${fmtEur(loan.principal)} al ${(loan.rate * 100).toFixed(1)}% per ${loan.duration} anni` + (loan.preammortamento > 0 ? ` (${loan.preammortamento} mesi preammortamento)` : ""), accent: true },
           React.createElement("div", { style: { display: "grid", gridTemplateColumns: "60px 1fr 1fr 1fr 1fr 60px", gap: 4, fontSize: 12 } },
             React.createElement("div", { style: { fontWeight: 700, padding: "8px", background: "#f3f4f6" } }, "Anno"),
             React.createElement("div", { style: { fontWeight: 700, padding: "8px", background: "#f3f4f6", textAlign: "right" } }, "Rata"),
@@ -6103,9 +5765,9 @@ function StepResults({
     );
 }
 
-/* ═════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MAIN APP
-   ═════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function App() {
   // #9 Autosave: load from localStorage on mount
   const loadSaved = () => {
@@ -6123,21 +5785,17 @@ function App() {
   const [hrs, setHrs] = useState(saved?.hrs || [DEFAULTS.hr()]);
   const [opexItems, setOpexItems] = useState(saved?.opexItems || [DEFAULTS.opex()]);
   const [investments, setInvestments] = useState(saved?.investments || [DEFAULTS.investment()]);
-  const [loans, setLoans] = useState(saved?.loans || []);
   const [assumptions, setAssumptions] = useState(saved?.assumptions ? { ...DEFAULTS.assumptions, ...saved.assumptions } : DEFAULTS.assumptions);
   const [savedScenarios, setSavedScenarios] = useState(saved?.savedScenarios || []);
   const [autoSaveStatus, setAutoSaveStatus] = useState(saved ? "restored" : null);
   const fileRef = useRef(null);
   const financials = useMemo(() => computeFinancials(company, revenues, hrs, opexItems, investments, assumptions), [company, revenues, hrs, opexItems, investments, assumptions]);
-  const yearLabels = useMemo(() => getYearLabels(company), [company.startYear, company.companyType, company.bilpianoAnno0, company.bilpianoAnnoM1]);
-  // Keep global YL in sync
-  updateYL(company);
   
   // #9 Autosave: save to localStorage every 10 seconds
   useEffect(() => {
     const timer = setInterval(() => {
       try {
-        const data = { company, revenues, hrs, opexItems, investments, loans, assumptions, savedScenarios, savedAt: new Date().toISOString() };
+        const data = { company, revenues, hrs, opexItems, investments, assumptions, savedScenarios, savedAt: new Date().toISOString() };
         localStorage.setItem("piano-economico-autosave", JSON.stringify(data));
         setAutoSaveStatus("saved");
         setTimeout(() => setAutoSaveStatus(null), 2000);
@@ -6196,9 +5854,9 @@ function App() {
           });
           setAssumptions(merged);
         }
-        alert("✅ Piano importato correttamente!");
+        alert("âœ… Piano importato correttamente!");
       } catch (err) {
-        alert("❌ Errore: file non valido. Usa un file .json generato da questa app.");
+        alert("âŒ Errore: file non valido. Usa un file .json generato da questa app.");
       }
     };
     reader.readAsText(file);
@@ -6289,26 +5947,41 @@ function App() {
       top: 0,
       height: "fit-content"
     }
-  }, STEPS.map(s => {
-    const validation = s.id < 7 ? getStepValidation(s.id, company, revenues, hrs, opexItems, investments, loans || []) : "ok";
-    const dotColor = validation === "ok" ? "#059669" : validation === "partial" ? "#d97706" : "#d1d5db";
-    return React.createElement("button", {
+  }, STEPS.map(s => /*#__PURE__*/React.createElement("button", {
     key: s.id,
     onClick: () => setStep(s.id),
     style: {
-      display: "flex", alignItems: "center", gap: 10, width: "100%",
-      padding: "12px 16px", border: "none", borderRadius: 10, marginBottom: 4,
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      width: "100%",
+      padding: "12px 16px",
+      border: "none",
+      borderRadius: 10,
+      marginBottom: 4,
       background: step === s.id ? "#fff" : "transparent",
       boxShadow: step === s.id ? "0 2px 8px rgba(0,0,0,.06)" : "none",
-      cursor: "pointer", textAlign: "left", transition: "all .2s"
+      cursor: "pointer",
+      textAlign: "left",
+      transition: "all .2s"
     }
-  }, React.createElement("span", { style: { fontSize: 18 } }, s.icon),
-  React.createElement("div", { style: { flex: 1 } },
-    React.createElement("div", { style: { fontSize: 13, fontWeight: step === s.id ? 700 : 500, color: step === s.id ? "#1e3a5f" : "#6b7280" } }, s.label),
-    React.createElement("div", { style: { fontSize: 10, color: "#9ca3af", marginTop: 1 } }, s.id + 1, "/", STEPS.length)
-  ),
-  React.createElement("div", { style: { width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0 } })
-  ); }), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 18
+    }
+  }, s.icon), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: step === s.id ? 700 : 500,
+      color: step === s.id ? "#1e3a5f" : "#6b7280"
+    }
+  }, s.label), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: "#9ca3af",
+      marginTop: 1
+    }
+  }, s.id + 1, "/", STEPS.length)))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 16,
       padding: 14,
@@ -6406,9 +6079,7 @@ function App() {
     setHrs: setHrs,
     setOpexItems: setOpexItems,
     setInvestments: setInvestments,
-    setAssumptions: setAssumptions,
-    loans: loans,
-    setLoans: setLoans
+    setAssumptions: setAssumptions
   }), step === 1 && /*#__PURE__*/React.createElement(StepRevenue, {
     revenues: revenues,
     setRevenues: setRevenues,
@@ -6432,9 +6103,7 @@ function App() {
   }), step === 6 && /*#__PURE__*/React.createElement(StepAssumptions, {
     assumptions: assumptions,
     setAssumptions: setAssumptions,
-    company: company,
-    loans: loans,
-    setLoans: setLoans
+    company: company
   }), step === 7 && /*#__PURE__*/React.createElement(StepResults, {
     financials: financials,
     company: company,
@@ -6443,8 +6112,6 @@ function App() {
     hrs: hrs,
     opexItems: opexItems,
     investments: investments,
-    loans: loans,
-    yearLabels: yearLabels,
     savedScenarios: savedScenarios,
     onSaveScenario: (s) => setSavedScenarios(prev => [...prev, s])
   })), /*#__PURE__*/React.createElement("div", {

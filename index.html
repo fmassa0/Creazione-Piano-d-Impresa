@@ -144,6 +144,13 @@ const DEFAULTS = {
     openingCash: 0,
     openingDebt: 0,
     openingEquity: 0,
+    openingFA: 0,        // Net fixed assets at start (immobilizzazioni nette)
+    openingFALife: 5,    // Remaining useful life of existing assets
+    openingAR: 0,        // Opening accounts receivable (crediti commerciali)
+    openingAP: 0,        // Opening accounts payable (debiti commerciali)
+    openingInventory: 0, // Opening inventory (rimanenze)
+    openingTFR: 0,       // Opening TFR fund
+    openingTaxPayable: 0,// Opening tax liabilities (debiti tributari)
     scenarioMultiplier: {
       base: 1,
       pessimistic: .85,
@@ -213,15 +220,23 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     if (base > 0) return s + base * Math.pow(1 + o.growthRate, i - baseYear);
     return s;
   }, 0));
-  const depreciation = YEARS.map((_, i) => investments.reduce((s, inv) => {
-    if (i >= inv.year && inv.usefulLife > 0 && i - inv.year < inv.usefulLife) return s + inv.cost / inv.usefulLife;
-    return s;
-  }, 0));
+  const depreciation = YEARS.map((_, i) => {
+    // Depreciation from new investments
+    let dep = investments.reduce((s, inv) => {
+      if (i >= inv.year && inv.usefulLife > 0 && i - inv.year < inv.usefulLife) return s + inv.cost / inv.usefulLife;
+      return s;
+    }, 0);
+    // Depreciation from existing fixed assets (opening FA)
+    const oFA = assumptions.openingFA || 0;
+    const oLife = assumptions.openingFALife || 5;
+    if (oFA > 0 && i < oLife) dep += oFA / oLife;
+    return dep;
+  });
   const grantIncome = YEARS.map((_, i) => assumptions.grantAmount > 0 && i < assumptions.grantYears ? assumptions.grantAmount / assumptions.grantYears : 0);
   const ebitda = YEARS.map((_, i) => grossProfit[i] - hrCosts[i] - opexCosts[i] + grantIncome[i]);
   const ebit = YEARS.map((_, i) => ebitda[i] - depreciation[i]);
   const netDebt = YEARS.map((_, i) => {
-    let d = 0;
+    let d = assumptions.openingDebt || 0;
     for (let j = 0; j <= i; j++) d += (assumptions.debtAmount[j] || 0) - (assumptions.debtRepayment[j] || 0);
     return Math.max(0, d);
   });
@@ -259,7 +274,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   // TFR: già incluso in hrCosts, ma deve apparire come passività BS
   const tfrShare = (assumptions.tfrRate || 0.0741) / (1 + (assumptions.tfrRate || 0.0741));
   const tfrAccrual = YEARS.map((_, i) => hrCosts[i] * tfrShare);
-  const cumTFR = YEARS.map((_, i) => tfrAccrual.slice(0, i + 1).reduce((s, t) => s + t, 0));
+  const cumTFR = YEARS.map((_, i) => (assumptions.openingTFR || 0) + tfrAccrual.slice(0, i + 1).reduce((s, t) => s + t, 0));
   const dividends = YEARS.map((_, i) => Math.max(0, netIncome[i] * assumptions.dividendPayout));
   const ar = YEARS.map((_, i) => totalRevenue[i] * (1 + assumptions.vatRate) * assumptions.dso / 360);
   const inventory = YEARS.map((_, i) => totalCOGS[i] * assumptions.dio / 360);
@@ -267,7 +282,24 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const totalInvestments = YEARS.map((_, i) => investments.filter(inv => inv.year === i).reduce((s, inv) => s + inv.cost, 0));
   const accDep = YEARS.map((_, i) => depreciation.slice(0, i + 1).reduce((s, d) => s + d, 0));
   const grossFA = YEARS.map((_, i) => totalInvestments.slice(0, i + 1).reduce((s, t) => s + t, 0));
-  const netFA = YEARS.map((_, i) => grossFA[i] - accDep[i]);
+  const netFA = YEARS.map((_, i) => {
+    // New investments net of depreciation
+    let fa = grossFA[i] - (investments.reduce((s, inv) => {
+      if (i >= inv.year && inv.usefulLife > 0) {
+        const yearsDepr = Math.min(i - inv.year + 1, inv.usefulLife);
+        return s + (inv.cost / inv.usefulLife) * yearsDepr;
+      }
+      return s;
+    }, 0));
+    // Existing fixed assets (opening FA) net of accumulated depreciation
+    const oFA = assumptions.openingFA || 0;
+    const oLife = assumptions.openingFALife || 5;
+    if (oFA > 0) {
+      const existingDepYears = Math.min(i + 1, oLife);
+      fa += oFA - (oFA / oLife) * existingDepYears;
+    }
+    return Math.max(0, fa);
+  });
   const equity = YEARS.map((_, i) => {
     let eq = assumptions.openingEquity || 0;
     for (let j = 0; j <= i; j++) eq += (assumptions.equityInjection[j] || 0) + netIncome[j] - dividends[j];
@@ -278,25 +310,31 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const grantCashIn = YEARS.map((_, i) => i === 0 ? assumptions.grantAmount : 0);
   const cumGrantIncome = YEARS.map((_, i) => grantIncome.slice(0, i + 1).reduce((s, g) => s + g, 0));
   const deferredGrant = YEARS.map((_, i) => Math.max(0, assumptions.grantAmount - cumGrantIncome[i]));
-  const currentLiabilities = YEARS.map((_, i) => ap[i] + totalTax[i]);
+  const currentLiabilities = YEARS.map((_, i) => ap[i] + totalTax[i] + (assumptions.openingTaxPayable || 0));
   const totalAssetsNoCash = YEARS.map((_, i) => ar[i] + inventory[i] + netFA[i]);
   const totalLiabEq = YEARS.map((_, i) => currentLiabilities[i] + deferredGrant[i] + netDebt[i] + cumTFR[i] + equity[i]);
   const cash = YEARS.map((_, i) => totalLiabEq[i] - totalAssetsNoCash[i]);
   const totalAssets = YEARS.map((_, i) => totalAssetsNoCash[i] + Math.max(0, cash[i]));
   const fundingGap = YEARS.map((_, i) => cash[i] < 0 ? Math.abs(cash[i]) : 0);
 
-  // CF Operating: NI + Dep + WC change (incl. tax payable) + grant cash adjustment
+  // CF Operating: NI + Dep + WC change (relative to opening values for Y1) + grant cash adjustment
+  const oAR = assumptions.openingAR || 0;
+  const oAP = assumptions.openingAP || 0;
+  const oInv = assumptions.openingInventory || 0;
   const cfOperating = YEARS.map((_, i) => {
-    const wcTrade = i === 0 ? -(ar[0] + inventory[0] - ap[0]) : -(ar[i] - ar[i - 1] + (inventory[i] - inventory[i - 1]) - (ap[i] - ap[i - 1]));
-    const wcTax = i === 0 ? totalTax[0] : totalTax[i] - totalTax[i - 1]; // tax accrued but not paid = source of cash
-    const grantAdj = grantCashIn[i] - grantIncome[i]; // non-cash adjustment: cash received minus income recognized
+    const prevAR = i === 0 ? oAR : ar[i - 1];
+    const prevInv = i === 0 ? oInv : inventory[i - 1];
+    const prevAP = i === 0 ? oAP : ap[i - 1];
+    const wcTrade = -(ar[i] - prevAR + inventory[i] - prevInv - (ap[i] - prevAP));
+    const wcTax = i === 0 ? totalTax[0] : totalTax[i] - totalTax[i - 1];
+    const grantAdj = grantCashIn[i] - grantIncome[i];
     return netIncome[i] + depreciation[i] + tfrAccrual[i] + wcTrade + wcTax + grantAdj;
   });
   const cfInvesting = YEARS.map((_, i) => -totalInvestments[i]);
   // CF Financing: NO grant here (grant cash is captured via operating adjustment)
   const cfFinancing = YEARS.map((_, i) => (assumptions.debtAmount[i] || 0) - (assumptions.debtRepayment[i] || 0) + (assumptions.equityInjection[i] || 0) - dividends[i]);
   const netCF = YEARS.map((_, i) => cfOperating[i] + cfInvesting[i] + cfFinancing[i]);
-  const cumCash = YEARS.map((_, i) => netCF.slice(0, i + 1).reduce((s, c) => s + c, 0));
+  const cumCash = YEARS.map((_, i) => (assumptions.openingCash || 0) + netCF.slice(0, i + 1).reduce((s, c) => s + c, 0));
   const grossMarginPct = YEARS.map((_, i) => totalRevenue[i] ? grossProfit[i] / totalRevenue[i] : 0);
   const ebitdaMargin = YEARS.map((_, i) => totalRevenue[i] ? ebitda[i] / totalRevenue[i] : 0);
   const netMargin = YEARS.map((_, i) => totalRevenue[i] ? netIncome[i] / totalRevenue[i] : 0);
@@ -1045,24 +1083,10 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
   }
   if (opexItems.length > 0) setOpexItems(opexItems);
   
-  // Investments — calibrate useful life from actual depreciation to match bilancio
-  const invItems = [];
-  if (data.immobilizzazioniImmateriali) {
-    // If we know actual depreciation, derive remaining useful life
-    let ulImm = 5;
-    if (data.ammortamentiImmateriali && data.ammortamentiImmateriali > 0) {
-      ulImm = Math.max(2, Math.round(data.immobilizzazioniImmateriali / data.ammortamentiImmateriali));
-    }
-    invItems.push({ ...DEFAULTS.investment(), name: "Immobilizzazioni immateriali (da bilancio)", type: "intangible", cost: data.immobilizzazioniImmateriali, usefulLife: ulImm, year: 0 });
-  }
-  if (data.immobilizzazioniMateriali) {
-    let ulMat = 7;
-    if (data.ammortamentiMateriali && data.ammortamentiMateriali > 0) {
-      ulMat = Math.max(2, Math.round(data.immobilizzazioniMateriali / data.ammortamentiMateriali));
-    }
-    invItems.push({ ...DEFAULTS.investment(), name: "Immobilizzazioni materiali (da bilancio)", type: "tangible", cost: data.immobilizzazioniMateriali, usefulLife: ulMat, year: 0 });
-  }
-  if (invItems.length > 0) setInvestments(invItems);
+  // Do NOT import existing immobilizzazioni as new investments!
+  // Existing fixed assets are handled via openingFA in assumptions.
+  // This avoids inflated depreciation. Only new future investments should go in the investments array.
+  setInvestments([]);
   
   // Assumptions
   setAssumptions(a => {
@@ -1074,6 +1098,26 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
       newA.debtAmount = [0, 0, 0, 0, 0];
     }
     if (data.patrimonioNetto) newA.openingEquity = data.patrimonioNetto;
+    if (data.tfr) newA.openingTFR = data.tfr;
+    if (data.debitiTributari) newA.openingTaxPayable = data.debitiTributari;
+    
+    // Fixed assets: use net book value and estimate remaining life from actual depreciation
+    const immTot = (data.immobilizzazioniImmateriali || 0) + (data.immobilizzazioniMateriali || 0);
+    if (immTot > 0) {
+      newA.openingFA = immTot;
+      const annualDep = (data.ammortamentiImmateriali || 0) + (data.ammortamentiMateriali || 0) || (data.ammortamenti || 0);
+      if (annualDep > 0) {
+        newA.openingFALife = Math.max(2, Math.round(immTot / annualDep));
+      } else {
+        newA.openingFALife = 5;
+      }
+    }
+    
+    // Working capital opening values for correct delta calculations
+    if (data.creditiCommerciali) newA.openingAR = data.creditiCommerciali;
+    else if (data.creditiTotali) newA.openingAR = data.creditiTotali;
+    if (data.debitiCommerciali) newA.openingAP = data.debitiCommerciali;
+    if (data.rimanenze) newA.openingInventory = data.rimanenze;
     
     // Working capital days from actual data
     if (data.creditiCommerciali && data.ricavi) {
@@ -1095,17 +1139,14 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
       newA.interestRate = Math.round((data.interessiPassivi / data.debitiFinanziari) * 1000) / 1000;
     }
     
-    // Tax rate from actual data — only adjust if effective rate is in normal range
-    // Skip if abnormally low (e.g. CPB concordato preventivo) or too high
+    // Tax rate from actual data
     if (data.imposte && data.risultatoPrimaImposte && data.risultatoPrimaImposte > 0) {
       const effectiveRate = data.imposte / data.risultatoPrimaImposte;
-      // Only use if within 15%–45% range (normal Italian corporate tax range)
       if (effectiveRate >= 0.15 && effectiveRate <= 0.45) {
         const scale = effectiveRate / 0.279;
         newA.iresRate = Math.round(0.24 * scale * 1000) / 1000;
         newA.irapRate = Math.round(0.039 * scale * 1000) / 1000;
       }
-      // Otherwise keep defaults (IRES 24% + IRAP 3.9%)
     }
     
     // Contributi from bilancio
@@ -3576,7 +3617,21 @@ function StepAssumptions({
     suffix: "anni",
     min: 1,
     step: 1
-  })), /*#__PURE__*/React.createElement(Note, null, "Ammortamento ", /*#__PURE__*/React.createElement("strong", null, "alla francese"), ": rata costante (quota capitale crescente + quota interessi decrescente). \xC8 il metodo pi\xF9 usato dalle banche italiane per mutui e finanziamenti. Se scegli \"Manuale\", inserisci tu i rimborsi anno per anno sopra.")));
+  })), /*#__PURE__*/React.createElement(Note, null, "Ammortamento ", /*#__PURE__*/React.createElement("strong", null, "alla francese"), ": rata costante (quota capitale crescente + quota interessi decrescente). \xC8 il metodo pi\xF9 usato dalle banche italiane per mutui e finanziamenti. Se scegli \"Manuale\", inserisci tu i rimborsi anno per anno sopra.")),
+    /*#__PURE__*/React.createElement(Card, { title: "Saldi di Apertura (da Bilancio)" },
+      /*#__PURE__*/React.createElement(Tip, { text: "Valori dello stato patrimoniale di partenza (Anno 0). Se hai importato un bilancio, vengono compilati automaticamente. Per startup, lascia tutto a zero." }),
+      /*#__PURE__*/React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 } },
+        /*#__PURE__*/React.createElement(InputField, { label: "Cassa iniziale", value: a.openingCash || 0, onChange: v => upd("openingCash", v), suffix: "\u20AC" }),
+        /*#__PURE__*/React.createElement(InputField, { label: "Debito finanziario", value: a.openingDebt || 0, onChange: v => upd("openingDebt", v), suffix: "\u20AC" }),
+        /*#__PURE__*/React.createElement(InputField, { label: "Patrimonio netto", value: a.openingEquity || 0, onChange: v => upd("openingEquity", v), suffix: "\u20AC" }),
+        /*#__PURE__*/React.createElement(InputField, { label: "Immobilizzazioni nette", value: a.openingFA || 0, onChange: v => upd("openingFA", v), suffix: "\u20AC" }),
+        /*#__PURE__*/React.createElement(InputField, { label: "Vita utile residua", value: a.openingFALife || 5, onChange: v => upd("openingFALife", v), suffix: "anni", min: 1, step: 1 }),
+        /*#__PURE__*/React.createElement(InputField, { label: "Crediti commerciali", value: a.openingAR || 0, onChange: v => upd("openingAR", v), suffix: "\u20AC" }),
+        /*#__PURE__*/React.createElement(InputField, { label: "Debiti commerciali", value: a.openingAP || 0, onChange: v => upd("openingAP", v), suffix: "\u20AC" }),
+        /*#__PURE__*/React.createElement(InputField, { label: "TFR accantonato", value: a.openingTFR || 0, onChange: v => upd("openingTFR", v), suffix: "\u20AC" }),
+        /*#__PURE__*/React.createElement(InputField, { label: "Rimanenze", value: a.openingInventory || 0, onChange: v => upd("openingInventory", v), suffix: "\u20AC" })
+      )
+    ));
 }
 function Gauge({
   label,

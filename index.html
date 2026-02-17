@@ -5011,14 +5011,14 @@ function StepResults({
     label: "Ricavo per dipendente",
     values: f.revPerEmp,
     n: n
-  }), /*#__PURE__*/React.createElement(Note, null, "Il ", /*#__PURE__*/React.createElement("strong", null, "BEP"), " indica il fatturato minimo per pareggiare. Il ", /*#__PURE__*/React.createElement("strong", null, "margine di sicurezza"), " \xE8 quanto i ricavi superano il BEP: se ", "<", " 10%, basta un piccolo calo delle vendite per andare in perdita. La ", /*#__PURE__*/React.createElement("strong", null, "PFN"), " positiva indica che l'azienda ha pi\xF9 liquidit\xE0 che debiti \u2014 condizione ideale per negoziare con le banche. Il ", /*#__PURE__*/React.createElement("strong", null, "NWC"), " positivo indica che l'attivo corrente copre i debiti a breve.")),
+  }), /*#__PURE__*/React.createElement(Note, null, "Il ", /*#__PURE__*/React.createElement("strong", null, "BEP"), " indica il fatturato minimo per pareggiare. Il ", /*#__PURE__*/React.createElement("strong", null, "margine di sicurezza"), " \xE8 quanto i ricavi superano il BEP: se ", "<", " 10%, basta un piccolo calo delle vendite per andare in perdita. La ", /*#__PURE__*/React.createElement("strong", null, "PFN"), " positiva indica che l'azienda ha pi\xF9 liquidit\xE0 che debiti \u2014 condizione ideale per negoziare con le banche. Il ", /*#__PURE__*/React.createElement("strong", null, "NWC"), " positivo indica che l'attivo corrente copre i debiti a breve."))),
     
-    /* ─── NEW TABS ─── */
+    /* ─── NEW TABS (at top level, outside KPI div) ─── */
     tab === "charts" && React.createElement(ChartsPanel, { financials: f, company }),
     tab === "sensitivity" && React.createElement(SensitivityPanel, { company, revenues, hrs, opexItems, investments, assumptions }),
     tab === "montecarlo" && React.createElement(MonteCarloPanel, { company, revenues, hrs, opexItems, investments, assumptions }),
     tab === "scenarios" && React.createElement(ScenarioComparePanel, { company, revenues, hrs, opexItems, investments, assumptions, savedScenarios: savedScenarios || [], onSaveScenario: onSaveScenario || (() => {}) })
-    ));
+    );
 }
 
 /* ═══════════════════════════════════════════════════════════

@@ -970,15 +970,38 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
   // Company
   if (data.capitaleSociale) setCompany(c => ({ ...c, capitaleSociale: data.capitaleSociale }));
   
-  // Revenue lines — use unitPrice=1 and volumes=total so growth rates work properly
+  /* ─── REVENUE + GROSS MARGIN ───
+     Strategy: back-calculate grossMargin from actual EBITDA so the model
+     reproduces the bilancio results correctly.
+     
+     For service companies (like software/consulting), "costi per servizi" (B.7)
+     is effectively COGS, but it also gets mixed with other costs. Instead of
+     guessing the COGS split, we derive grossMargin from:
+       grossMargin = (EBITDA + HR + overheadOpEx) / ricavi
+     This guarantees the model EBITDA matches the real bilancio.
+  */
   const ricavi = data.ricavi || 0;
   if (ricavi > 0) {
-    // Estimate COGS from the difference: ricavi - margine lordo
-    const cogsEstimate = data.cogs || data.materiePrime || 0;
-    const margin = ricavi > 0 ? Math.max(0.10, Math.min(0.95, 1 - (cogsEstimate / ricavi))) : 0.40;
+    let grossMargin = 0.50; // default fallback
     
-    // Use unitPrice=1 so volumes represent actual euros, enabling growth rate auto-calc
-    // Set only year 1 volume, leave rest as 0 so growthRates kick in
+    // Best method: derive from actual EBITDA
+    const realEBITDA = data.ebitda || (data.margineOperativo && data.ammortamenti 
+      ? data.margineOperativo + data.ammortamenti : null);
+    const overheadOpEx = (data.godimentoBeni || 0) + (data.oneriDiversi || 0);
+    const hrCost = data.personale || 0;
+    
+    if (realEBITDA) {
+      // grossMargin = (EBITDA + HR + OpEx) / Ricavi
+      const neededGrossProfit = realEBITDA + hrCost + overheadOpEx;
+      grossMargin = Math.max(0.10, Math.min(0.98, neededGrossProfit / ricavi));
+    } else if (data.costiServizi) {
+      // Fallback: treat servizi as COGS
+      const totalCOGS = (data.materiePrime || 0) + (data.costiServizi || 0) + (data.rimanenze || 0);
+      grossMargin = Math.max(0.10, Math.min(0.95, 1 - totalCOGS / ricavi));
+    } else if (data.materiePrime) {
+      grossMargin = Math.max(0.10, Math.min(0.95, 1 - data.materiePrime / ricavi));
+    }
+    
     setRevenues([{
       ...DEFAULTS.revenueLine(),
       name: "Ricavi vendite e prestazioni (da bilancio)",
@@ -986,7 +1009,7 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
       unitPrice: 1,
       volumes: [ricavi, 0, 0, 0, 0],
       growthRates: [0, 0.08, 0.08, 0.06, 0.06],
-      grossMargin: margin
+      grossMargin: Math.round(grossMargin * 1000) / 1000
     }]);
   }
   
@@ -1004,40 +1027,50 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
     }]);
   }
   
-  // Operating costs breakdown
+  /* ─── OPERATING COSTS ───
+     Only truly "overhead" costs go here: godimento beni (rent/leasing)
+     and oneri diversi di gestione. Costi per servizi (B.7) is absorbed
+     into the grossMargin calculation above, to avoid double-counting.
+  */
   const opexItems = [];
-  if (data.costiServizi) {
-    opexItems.push({ ...DEFAULTS.opex(), name: "Costi per servizi", category: "general", values: [data.costiServizi, 0, 0, 0, 0], growthRate: 0.03 });
-  }
   if (data.godimentoBeni) {
-    opexItems.push({ ...DEFAULTS.opex(), name: "Godimento beni di terzi", category: "rent", values: [data.godimentoBeni, 0, 0, 0, 0], growthRate: 0.02 });
+    opexItems.push({ ...DEFAULTS.opex(), name: "Godimento beni di terzi (affitti, leasing)", category: "rent", values: [data.godimentoBeni, 0, 0, 0, 0], growthRate: 0.02 });
   }
   if (data.oneriDiversi) {
     opexItems.push({ ...DEFAULTS.opex(), name: "Oneri diversi di gestione", category: "other", values: [data.oneriDiversi, 0, 0, 0, 0], growthRate: 0.02 });
   }
+  // Fallback if no detail available
   if (opexItems.length === 0 && data.costiOperativi) {
     opexItems.push({ ...DEFAULTS.opex(), name: "Costi operativi (da bilancio)", values: [data.costiOperativi, 0, 0, 0, 0], growthRate: 0.03 });
   }
   if (opexItems.length > 0) setOpexItems(opexItems);
   
-  // Investments (from immobilizzazioni)
+  // Investments — calibrate useful life from actual depreciation to match bilancio
   const invItems = [];
   if (data.immobilizzazioniImmateriali) {
-    invItems.push({ ...DEFAULTS.investment(), name: "Immobilizzazioni immateriali (da bilancio)", type: "intangible", cost: data.immobilizzazioniImmateriali, usefulLife: 5, year: 0 });
+    // If we know actual depreciation, derive remaining useful life
+    let ulImm = 5;
+    if (data.ammortamentiImmateriali && data.ammortamentiImmateriali > 0) {
+      ulImm = Math.max(2, Math.round(data.immobilizzazioniImmateriali / data.ammortamentiImmateriali));
+    }
+    invItems.push({ ...DEFAULTS.investment(), name: "Immobilizzazioni immateriali (da bilancio)", type: "intangible", cost: data.immobilizzazioniImmateriali, usefulLife: ulImm, year: 0 });
   }
   if (data.immobilizzazioniMateriali) {
-    invItems.push({ ...DEFAULTS.investment(), name: "Immobilizzazioni materiali (da bilancio)", type: "tangible", cost: data.immobilizzazioniMateriali, usefulLife: 7, year: 0 });
+    let ulMat = 7;
+    if (data.ammortamentiMateriali && data.ammortamentiMateriali > 0) {
+      ulMat = Math.max(2, Math.round(data.immobilizzazioniMateriali / data.ammortamentiMateriali));
+    }
+    invItems.push({ ...DEFAULTS.investment(), name: "Immobilizzazioni materiali (da bilancio)", type: "tangible", cost: data.immobilizzazioniMateriali, usefulLife: ulMat, year: 0 });
   }
   if (invItems.length > 0) setInvestments(invItems);
   
   // Assumptions
   setAssumptions(a => {
     const newA = { ...a };
-    // Opening balances
+    // Opening balances (from bilancio = "Anno 0")
     if (data.cassa) newA.openingCash = data.cassa;
     if (data.debitiFinanziari) {
       newA.openingDebt = data.debitiFinanziari;
-      // Estimate debt amount already in place
       newA.debtAmount = [0, 0, 0, 0, 0];
     }
     if (data.patrimonioNetto) newA.openingEquity = data.patrimonioNetto;
@@ -1054,12 +1087,31 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
     if (data.rimanenze && data.cogs) {
       newA.dio = Math.round((data.rimanenze / data.cogs) * 360);
     } else {
-      newA.dio = 0; // Service companies
+      newA.dio = 0;
     }
     
     // Interest rate from actual data
     if (data.interessiPassivi && data.debitiFinanziari && data.debitiFinanziari > 0) {
       newA.interestRate = Math.round((data.interessiPassivi / data.debitiFinanziari) * 1000) / 1000;
+    }
+    
+    // Tax rate from actual data — only adjust if effective rate is in normal range
+    // Skip if abnormally low (e.g. CPB concordato preventivo) or too high
+    if (data.imposte && data.risultatoPrimaImposte && data.risultatoPrimaImposte > 0) {
+      const effectiveRate = data.imposte / data.risultatoPrimaImposte;
+      // Only use if within 15%–45% range (normal Italian corporate tax range)
+      if (effectiveRate >= 0.15 && effectiveRate <= 0.45) {
+        const scale = effectiveRate / 0.279;
+        newA.iresRate = Math.round(0.24 * scale * 1000) / 1000;
+        newA.irapRate = Math.round(0.039 * scale * 1000) / 1000;
+      }
+      // Otherwise keep defaults (IRES 24% + IRAP 3.9%)
+    }
+    
+    // Contributi from bilancio
+    if (data.contributi && data.contributi > 0) {
+      newA.grantAmount = data.contributi;
+      newA.grantYears = 1;
     }
     
     return newA;
@@ -4255,9 +4307,22 @@ function ImportBilancioPanel({ setCompany, setRevenues, setHrs, setOpexItems, se
           React.createElement("span", { style: { fontSize: 11, fontWeight: 600, color: "#1e3a5f" } }, "KPI calcolati: "),
           React.createElement("span", { style: { fontSize: 11, color: "#374151", fontFamily: "'JetBrains Mono',monospace" } },
             `Margine op. ${parsedData.ricavi ? ((parsedData.margineOperativo / parsedData.ricavi) * 100).toFixed(1) : "?"}%`,
-            parsedData.ebitda ? ` | EBITDA margin ${((parsedData.ebitda / parsedData.ricavi) * 100).toFixed(1)}%` : "",
-            parsedData.utileNetto ? ` | Margine netto ${((parsedData.utileNetto / parsedData.ricavi) * 100).toFixed(1)}%` : "",
+            parsedData.ebitda || (parsedData.margineOperativo && parsedData.ammortamenti) ? ` | EBITDA ${fmtEur((parsedData.ebitda || parsedData.margineOperativo + parsedData.ammortamenti))} (${(((parsedData.ebitda || parsedData.margineOperativo + parsedData.ammortamenti) / parsedData.ricavi) * 100).toFixed(1)}%)` : "",
+            parsedData.utileNetto ? ` | Utile netto ${fmtEur(parsedData.utileNetto)} (${((parsedData.utileNetto / parsedData.ricavi) * 100).toFixed(1)}%)` : "",
             parsedData.patrimonioNetto && parsedData.utileNetto ? ` | ROE ${((parsedData.utileNetto / parsedData.patrimonioNetto) * 100).toFixed(1)}%` : ""
+          ),
+          // Show derived gross margin explanation
+          React.createElement("div", { style: { fontSize: 10, color: "#6b7280", marginTop: 4 } },
+            (() => {
+              const realEBITDA = parsedData.ebitda || (parsedData.margineOperativo && parsedData.ammortamenti ? parsedData.margineOperativo + parsedData.ammortamenti : 0);
+              const overhead = (parsedData.godimentoBeni || 0) + (parsedData.oneriDiversi || 0);
+              const hr = parsedData.personale || 0;
+              if (realEBITDA && parsedData.ricavi) {
+                const gm = ((realEBITDA + hr + overhead) / parsedData.ricavi * 100).toFixed(1);
+                return `💡 Margine lordo derivato: ${gm}% (calcolato da EBITDA reale ${fmtEur(realEBITDA)} + personale ${fmtEur(hr)} + overhead ${fmtEur(overhead)} / ricavi). I costi per servizi (B.7) sono assorbiti nel margine lordo.`;
+              }
+              return "";
+            })()
           )
         ),
         React.createElement("div", { style: { marginTop: 12, display: "flex", gap: 8 } },

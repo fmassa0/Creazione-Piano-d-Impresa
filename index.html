@@ -55,6 +55,38 @@ function updateYL(company) {
   const sy = company && company.startYear ? company.startYear : new Date().getFullYear();
   YL[0] = String(sy); YL[1] = String(sy+1); YL[2] = String(sy+2); YL[3] = String(sy+3); YL[4] = String(sy+4);
 }
+// V4.5: Multi-lingua (IT/EN)
+const I18N = {
+  it: {
+    appTitle: "Piano Economico",
+    stepAzienda: "Azienda", stepRicavi: "Ricavi", stepProduzione: "Produzione",
+    stepPersonale: "Personale", stepCosti: "Costi Op.", stepInvestimenti: "Investimenti",
+    stepIpotesi: "Ipotesi", stepRisultati: "Risultati",
+    avanti: "Avanti \u2192", indietro: "\u2190 Indietro",
+    exportPdf: "\uD83D\uDCD5 PDF", exportExcel: "\uD83D\uDCD7 Excel",
+    exportJson: "\uD83D\uDCBE Salva Piano", importJson: "\uD83D\uDCC2 Importa JSON",
+    ricaviTotali: "Ricavi totali", costoVenduto: "Costo del venduto",
+    margineLordo: "MARGINE LORDO", ebitda: "EBITDA", utileNetto: "Utile netto",
+    ce: "Conto Economico", sp: "Stato Patrimoniale", cf: "Rendiconto Finanziario",
+    kpi: "KPI", benchmark: "Benchmark", sintesi: "Sintesi",
+    lang: "it"
+  },
+  en: {
+    appTitle: "Financial Plan",
+    stepAzienda: "Company", stepRicavi: "Revenue", stepProduzione: "Production",
+    stepPersonale: "Personnel", stepCosti: "OpEx", stepInvestimenti: "Investments",
+    stepIpotesi: "Assumptions", stepRisultati: "Results",
+    avanti: "Next \u2192", indietro: "\u2190 Back",
+    exportPdf: "\uD83D\uDCD5 PDF", exportExcel: "\uD83D\uDCD7 Excel",
+    exportJson: "\uD83D\uDCBE Save Plan", importJson: "\uD83D\uDCC2 Import JSON",
+    ricaviTotali: "Total Revenue", costoVenduto: "Cost of goods sold",
+    margineLordo: "GROSS MARGIN", ebitda: "EBITDA", utileNetto: "Net income",
+    ce: "Income Statement", sp: "Balance Sheet", cf: "Cash Flow Statement",
+    kpi: "KPIs", benchmark: "Benchmark", sintesi: "Summary",
+    lang: "en"
+  }
+};
+
 const STEPS = [{
   id: 0,
   label: "Azienda",
@@ -1149,6 +1181,105 @@ function parseBilancioExcel(file) {
 }
 
 // Unified parse function (detects file type)
+
+// V4.5: XBRL / XML bilancio parser
+async function parseBilancioXBRL(file) {
+  var text = await file.text();
+  var parser = new DOMParser();
+  var xmlDoc = parser.parseFromString(text, "text/xml");
+  var data = { _raw: {}, _source: "xbrl" };
+  
+  // Italian XBRL taxonomy mapping (itcc-ci / itcc-ci-ese)
+  var mapping = {
+    // CE
+    "RicaviDelleVenditeEDellePrestazioni": "ricavi",
+    "RicaviVenditePrestazioniA1": "ricavi",
+    "A1RicaviDelleVenditeEDellePrestazioni": "ricavi",
+    "TotaleValoreDellaproduzione": "totalRicavi",
+    "TotaleCostiDellaproduzione": "totalCosti",
+    "CostiPerMateriePrime": "costiMaterie",
+    "CostiPerServiziB7": "costiServizi",
+    "CostiPerServizi": "costiServizi",
+    "CostiPerIlPersonaleB9": "personale",
+    "CostiPerIlPersonale": "personale",
+    "TotaleCostiPerIlPersonale": "personale",
+    "AmmortamentoImmobilizzazioniImmateriali": "ammImmateriali",
+    "AmmortamentoImmobilizzazioniMateriali": "ammMateriali",
+    "TotaleAmmortamentiESvalutazioni": "ammortamenti",
+    "DifferenzaTraValoreECostiDellaProduzione": "ebit",
+    "TotaleProventiEdOneriFinanziari": "interessiPassivi",
+    "RisultatoPrimaDelleImposte": "risultatoPrimaImposte",
+    "ImposteSulRedditoDellEsercizio": "imposte",
+    "UtilePerditeEsercizio": "utileNetto",
+    "UtilePerditeDellesercizio": "utileNetto",
+    "RisultatoEsercizio": "utileNetto",
+    // SP Attivo
+    "ImmobilizzazioniImmateriali": "immobilizzazioniImmateriali",
+    "TotaleImmobilizzazioniImmateriali": "immobilizzazioniImmateriali",
+    "ImmobilizzazioniMateriali": "immobilizzazioniMateriali",
+    "TotaleImmobilizzazioniMateriali": "immobilizzazioniMateriali",
+    "Rimanenze": "rimanenze",
+    "TotaleRimanenze": "rimanenze",
+    "CreditiVersoClienti": "creditiCommerciali",
+    "CreditiCommerciali": "creditiCommerciali",
+    "DepositiBancariEPostali": "cassa",
+    "DenariEValoriInCassa": "cassaContanti",
+    "TotaleAttivoCircolante": "attivoCircolante",
+    // SP Passivo
+    "CapitaleSociale": "capitaleSociale",
+    "TotalePatrimonioNetto": "patrimonioNetto",
+    "PatrimonioNetto": "patrimonioNetto",
+    "DebitiVersoFornitori": "debitiCommerciali",
+    "DebitiBanche": "debitiFinanziari",
+    "DebitiVersoBanche": "debitiFinanziari",
+    "TrattoFineRapporto": "tfr",
+    "TrattamentoDiFineRapporto": "tfr",
+    "FondoTFR": "tfr",
+    "NumeroMedioDipendenti": "dipendenti",
+    "NumeroDipendenti": "dipendenti"
+  };
+  
+  // Search all elements in the XML
+  var allElements = xmlDoc.getElementsByTagName("*");
+  for (var i = 0; i < allElements.length; i++) {
+    var el = allElements[i];
+    var localName = el.localName || el.nodeName.split(":").pop();
+    
+    for (var key in mapping) {
+      if (localName.toLowerCase().indexOf(key.toLowerCase()) >= 0 || localName === key) {
+        var val = parseFloat(el.textContent.replace(/[.\s]/g, "").replace(",", "."));
+        if (!isNaN(val)) {
+          data._raw[localName] = val;
+          data[mapping[key]] = val;
+        }
+        break;
+      }
+    }
+  }
+  
+  // Derive computed fields
+  if (!data.ricavi && data.totalRicavi) data.ricavi = data.totalRicavi;
+  if (!data.ammortamenti && (data.ammImmateriali || data.ammMateriali)) {
+    data.ammortamenti = (data.ammImmateriali || 0) + (data.ammMateriali || 0);
+  }
+  if (!data.cassa && data.cassaContanti) data.cassa = data.cassaContanti;
+  if (data.costiMaterie || data.costiServizi) {
+    data.costiEsterni = (data.costiMaterie || 0) + (data.costiServizi || 0);
+  }
+  if (data.ricavi && data.personale && !data.ebitda) {
+    data.ebitda = data.ricavi - (data.costiEsterni || 0) - data.personale;
+  }
+  if (data.interessiPassivi) data.interessiPassivi = Math.abs(data.interessiPassivi);
+  
+  // Check if we found enough data
+  var foundKeys = Object.keys(data).filter(function(k) { return k[0] !== "_"; });
+  if (foundKeys.length < 3) {
+    throw new Error("File XBRL non contiene abbastanza dati riconoscibili. Trovati solo: " + foundKeys.join(", ") + ". Prova con il formato PDF o Excel.");
+  }
+  
+  return data;
+}
+
 async function parseBilancioFile(file) {
   const ext = file.name.toLowerCase().split(".").pop();
   
@@ -1159,9 +1290,9 @@ async function parseBilancioFile(file) {
     return await parseBilancioExcel(file);
   } else {
     if (ext === "xbrl" || ext === "xml") {
-      throw new Error("Formato XBRL/XML rilevato. Converti prima in PDF tramite il sito dell'Agenzia delle Entrate o esporta da TeamSystem/Zucchetti in formato Excel.");
+      return await parseBilancioXBRL(file);
     }
-    throw new Error("Formato ." + ext + " non supportato. Formati accettati: PDF (bilancio depositato), XLSX, XLS, CSV (export gestionali).");
+    throw new Error("Formato ." + ext + " non supportato. Formati accettati: PDF, XLSX, XLS, CSV, XBRL.");
   }
 }
 
@@ -1356,7 +1487,39 @@ function applyBilancioData(data, setCompany, setRevenues, setHrs, setOpexItems, 
    EXPORT ENGINES
    ═══════════════════════════════════════════════════════════ */
 
-function exportPDF(company, financials, revenues, hrs, opexItems, investments, assumptions) {
+
+// V4.5: Render Chart.js to base64 image for PDF
+function renderChartImage(config, width, height) {
+  return new Promise(function(resolve) {
+    var canvas = document.createElement("canvas");
+    canvas.width = width || 800;
+    canvas.height = height || 400;
+    canvas.style.position = "fixed";
+    canvas.style.left = "-9999px";
+    document.body.appendChild(canvas);
+    var ctx = canvas.getContext("2d");
+    var merged = Object.assign({}, config, {
+      options: Object.assign({}, config.options || {}, {
+        animation: false,
+        responsive: false,
+        devicePixelRatio: 2,
+        plugins: Object.assign({}, (config.options || {}).plugins || {}, {
+          legend: Object.assign({}, ((config.options || {}).plugins || {}).legend || {}, { labels: { font: { size: 11 } } })
+        })
+      })
+    });
+    var chart = new Chart(ctx, merged);
+    // Chart.js with animation:false renders synchronously
+    setTimeout(function() {
+      var img = canvas.toDataURL("image/png", 1.0);
+      chart.destroy();
+      document.body.removeChild(canvas);
+      resolve(img);
+    }, 100);
+  });
+}
+
+async function exportPDF(company, financials, revenues, hrs, opexItems, investments, assumptions) {
   const {
     jsPDF
   } = window.jspdf;
@@ -1476,6 +1639,76 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
   doc.text("Generato il " + new Date().toLocaleDateString("it-IT"), pg.w / 2, pg.h / 2 + 28, {
     align: "center"
   });
+
+  // V4.5: DASHBOARD GRAFICO nel PDF
+  doc.addPage();
+  y = pg.my;
+  addTitle("DASHBOARD GRAFICO");
+  
+  try {
+    var chartLabels = YL.slice(0, n);
+    var chartColors = { blue: "#2563eb", green: "#059669", red: "#dc2626", amber: "#d97706", purple: "#7c3aed" };
+    
+    // Chart 1: Revenue + EBITDA + Net Income trend
+    var img1 = await renderChartImage({
+      type: "line",
+      data: {
+        labels: chartLabels,
+        datasets: [
+          { label: "Ricavi", data: f.totalRevenue.slice(0, n), borderColor: chartColors.blue, backgroundColor: chartColors.blue + "30", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 4 },
+          { label: "EBITDA", data: f.ebitda.slice(0, n), borderColor: chartColors.green, backgroundColor: chartColors.green + "30", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 4 },
+          { label: "Utile Netto", data: f.netIncome.slice(0, n), borderColor: chartColors.purple, backgroundColor: chartColors.purple + "30", fill: true, tension: 0.3, borderWidth: 2, pointRadius: 4 }
+        ]
+      },
+      options: {
+        plugins: { title: { display: true, text: "Trend Ricavi, EBITDA, Utile Netto", font: { size: 14, weight: "bold" } } },
+        scales: { y: { ticks: { callback: function(v) { return (v/1000).toFixed(0) + "K"; } } } }
+      }
+    }, 1200, 500);
+    doc.addImage(img1, "PNG", pg.mx, y, pg.w - 2 * pg.mx, 80);
+    y += 85;
+    
+    // Chart 2: Cash Flow stacked bar
+    var img2 = await renderChartImage({
+      type: "bar",
+      data: {
+        labels: chartLabels,
+        datasets: [
+          { label: "CF Operativo", data: f.cfOperating.slice(0, n), backgroundColor: chartColors.green + "cc" },
+          { label: "CF Investimento", data: f.cfInvesting.slice(0, n), backgroundColor: chartColors.red + "cc" },
+          { label: "CF Finanziamento", data: f.cfFinancing.slice(0, n), backgroundColor: chartColors.blue + "cc" }
+        ]
+      },
+      options: {
+        plugins: { title: { display: true, text: "Cash Flow per Attivita", font: { size: 13, weight: "bold" } } },
+        scales: { y: { ticks: { callback: function(v) { return (v/1000).toFixed(0) + "K"; } } } }
+      }
+    }, 560, 400);
+    doc.addImage(img2, "PNG", pg.mx, y, (pg.w - 2 * pg.mx) / 2 - 3, 60);
+    
+    // Chart 3: Cassa vs Debito
+    var img3 = await renderChartImage({
+      type: "bar",
+      data: {
+        labels: chartLabels,
+        datasets: [
+          { label: "Cassa cumulata", data: f.cumCash.slice(0, n), backgroundColor: f.cumCash.slice(0, n).map(function(v) { return v >= 0 ? chartColors.green + "cc" : chartColors.red + "cc"; }) },
+          { label: "Debito", data: f.netDebt.slice(0, n).map(function(v) { return -v; }), backgroundColor: chartColors.amber + "cc" }
+        ]
+      },
+      options: {
+        plugins: { title: { display: true, text: "Cassa Cumulata vs Debito", font: { size: 13, weight: "bold" } } },
+        scales: { y: { ticks: { callback: function(v) { return (v/1000).toFixed(0) + "K"; } } } }
+      }
+    }, 560, 400);
+    doc.addImage(img3, "PNG", pg.w / 2 + 3, y, (pg.w - 2 * pg.mx) / 2 - 3, 60);
+    y += 65;
+  } catch(e) {
+    doc.setFontSize(9);
+    doc.setTextColor(156, 163, 175);
+    doc.text("Grafici non disponibili: " + e.message, pg.mx, y);
+    y += 10;
+  }
 
   // CE
   doc.addPage();
@@ -4719,7 +4952,7 @@ function ImportBilancioPanel({ setCompany, setRevenues, setHrs, setOpexItems, se
         "Carica un bilancio in formato ", React.createElement("strong", null, "PDF"), " o ", React.createElement("strong", null, "Excel"),
         " (.pdf, .xlsx, .xls, .csv) per pre-compilare automaticamente il piano economico. Il parser riconosce le voci standard del bilancio CEE italiano (abbreviato e ordinario)."),
       React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
-        React.createElement("input", { ref: inputRef, type: "file", accept: ".pdf,.xlsx,.xls,.csv", onChange: handleFile, style: { display: "none" } }),
+        React.createElement("input", { ref: inputRef, type: "file", accept: ".pdf,.xlsx,.xls,.csv,.xbrl,.xml", onChange: handleFile, style: { display: "none" } }),
         React.createElement(Btn, { primary: true, onClick: () => inputRef.current.click() }, "📂 Carica Bilancio (PDF/Excel)"),
         status === "loading" && React.createElement("span", { className: "pulse", style: { fontSize: 12, color: "#6b7280" } }, "⏳ Analisi del documento in corso..."),
         status === "applied" && React.createElement("span", { style: { fontSize: 12, color: "#059669", fontWeight: 600 } }, "✅ Dati importati con successo!"),
@@ -4863,49 +5096,51 @@ function StepResults({
   opexItems,
   investments,
   savedScenarios,
-  onSaveScenario
+  onSaveScenario,
+  lang
 }) {
   const n = company.yearsCount;
+  const isEN = lang === "en";
   const [tab, setTab] = useState("summary");
   const tabs = [{
     id: "summary",
-    label: "\uD83D\uDCDD Sintesi"
+    label: isEN ? "\uD83D\uDCDD Summary" : "\uD83D\uDCDD Sintesi"
   }, {
     id: "dashboard",
-    label: "📊 Dashboard"
+    label: isEN ? "📊 Dashboard" : "📊 Dashboard"
   }, {
     id: "benchmark",
-    label: "\uD83C\uDFAF Benchmark"
+    label: isEN ? "\uD83C\uDFAF Benchmark" : "\uD83C\uDFAF Benchmark"
   }, {
         id: "charts",
-    label: "📈 Grafici"
+    label: isEN ? "📈 Charts" : "📈 Grafici"
   }, {
     id: "is",
-    label: "Conto Economico"
+    label: isEN ? "Income Statement" : "Conto Economico"
   }, {
     id: "bs",
-    label: "Stato Patrimoniale"
+    label: isEN ? "Balance Sheet" : "Stato Patrimoniale"
   }, {
     id: "cf",
-    label: "Cash Flow"
+    label: isEN ? "Cash Flow" : "Cash Flow"
   }, {
     id: "kpi",
-    label: "KPI Avanzati"
+    label: isEN ? "Advanced KPIs" : "KPI Avanzati"
   }, {
     id: "sensitivity",
-    label: "🌪️ Sensitività"
+    label: isEN ? "🌪️ Sensitivity" : "🌪️ Sensitività"
   }, {
     id: "montecarlo",
     label: "🎲 Monte Carlo"
   }, {
     id: "scenarios",
-    label: "🔀 Scenari"
+    label: isEN ? "🔀 Scenarios" : "🔀 Scenari"
   }, {
     id: "nota",
-    label: "\uD83D\uDCCB Nota Integrativa"
+    label: isEN ? "\uD83D\uDCCB Notes" : "\uD83D\uDCCB Nota Integrativa"
   }, {
     id: "multiScenario",
-    label: "\u2696\uFE0F Confronto"
+    label: isEN ? "\u2696\uFE0F Compare" : "\u2696\uFE0F Confronto"
   }];
   const Div = () => /*#__PURE__*/React.createElement("div", {
     style: {
@@ -5774,6 +6009,8 @@ React.createElement(Card, {
    ═══════════════════════════════════════════════════════════ */
 function App() {
   const [step, setStep] = useState(0);
+  const [lang, setLang] = useState("it");
+  const t = I18N[lang] || I18N.it;
   const [company, setCompany] = useState(DEFAULTS.company);
   const [revenues, setRevenues] = useState([DEFAULTS.revenueLine()]);
   const [hrs, setHrs] = useState([DEFAULTS.hr()]);
@@ -5899,7 +6136,10 @@ function App() {
   }, "\uD83D\uDCD7 Esporta Excel"), /*#__PURE__*/React.createElement(Btn, {
     small: true,
     onClick: () => exportPDF(company, financials, revenues, hrs, opexItems, investments, assumptions)
-  }, "\uD83D\uDCD5 Esporta PDF"))), /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDCD5 Esporta PDF"), /*#__PURE__*/React.createElement("button", {
+    onClick: function() { setLang(lang === "it" ? "en" : "it"); },
+    style: { padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, marginLeft: 8 }
+  }, lang === "it" ? "\uD83C\uDDEC\uD83C\uDDE7 EN" : "\uD83C\uDDEE\uD83C\uDDF9 IT"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       maxWidth: 1200,
@@ -6067,7 +6307,8 @@ function App() {
     opexItems: opexItems,
     investments: investments,
     savedScenarios: savedScenarios,
-    onSaveScenario: (s) => setSavedScenarios(prev => [...prev, s])
+    onSaveScenario: (s) => setSavedScenarios(prev => [...prev, s]),
+    lang: lang
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -6079,7 +6320,7 @@ function App() {
   }, /*#__PURE__*/React.createElement(Btn, {
     onClick: () => setStep(Math.max(0, step - 1)),
     disabled: step === 0
-  }, "\u2190 Indietro"), /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "\u2190 Back" : "\u2190 Indietro"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8
@@ -6100,7 +6341,7 @@ function App() {
       }
       setStep(step + 1);
     }
-  }, "Avanti \u2192") : /*#__PURE__*/React.createElement(Btn, {
+  }, lang === "en" ? "Next \u2192" : "Avanti \u2192") : /*#__PURE__*/React.createElement(Btn, {
     primary: true,
     onClick: exportJSON
   }, "\uD83D\uDCBE Salva Piano"))))));

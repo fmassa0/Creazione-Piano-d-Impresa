@@ -168,6 +168,20 @@ const I18N = {
   }
 };
 
+function getSteps(lang) {
+  var t = I18N[lang] || I18N.it;
+  return [
+    { id: 0, label: t.stepAzienda, icon: "\uD83C\uDFE2", desc: t.descAzienda },
+    { id: 1, label: t.stepRicavi, icon: "\uD83D\uDCC8", desc: t.descRicavi },
+    { id: 2, label: t.stepProduzione, icon: "\uD83C\uDFED", desc: t.descProduzione },
+    { id: 3, label: t.stepPersonale, icon: "\uD83D\uDC65", desc: t.descPersonale },
+    { id: 4, label: t.stepCosti, icon: "\uD83D\uDCBC", desc: t.descCosti },
+    { id: 5, label: t.stepInvestimenti, icon: "\uD83D\uDD27", desc: t.descInvestimenti },
+    { id: 6, label: t.stepIpotesi, icon: "\u2699\uFE0F", desc: t.descIpotesi },
+    { id: 7, label: t.stepRisultati, icon: "\uD83D\uDCCA", desc: t.descRisultati }
+  ];
+}
+
 const STEPS = [{
   id: 0,
   label: "Azienda",

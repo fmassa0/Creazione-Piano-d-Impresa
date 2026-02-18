@@ -33,6 +33,22 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .v4-mobile-tabs{display:none;overflow-x:auto;gap:4px;padding:8px 0;border-bottom:1px solid #e5e7eb;margin-bottom:12px}
 .v4-mobile-tabs button{flex-shrink:0;padding:6px 12px;font-size:11px;white-space:nowrap;border:1px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer}
 .v4-mobile-tabs button.active{background:#1e40af;color:#fff;border-color:#1e40af}
+/* v4.6 UX Polish */
+.step-enter{animation:stepEnter .35s cubic-bezier(.4,0,.2,1)}
+@keyframes stepEnter{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+.v4-progress{height:3px;background:#e5e7eb;border-radius:2px;overflow:hidden;margin:0 16px 0 16px}
+.v4-progress-bar{height:100%;background:linear-gradient(90deg,#1e40af,#3b82f6);border-radius:2px;transition:width .4s cubic-bezier(.4,0,.2,1)}
+.v4-card-hover{transition:box-shadow .2s,transform .15s}
+.v4-card-hover:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)!important;transform:translateY(-1px)}
+.v4-tooltip{position:relative}
+.v4-tooltip:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:6px 10px;border-radius:6px;font-size:11px;white-space:nowrap;z-index:100;pointer-events:none}
+.v4-warn-badge{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:#fefce8;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;margin-top:8px}
+.v4-onboard-overlay{position:fixed;inset:0;background:rgba(15,36,64,.7);backdrop-filter:blur(4px);z-index:1000;display:flex;align-items:center;justify-content:center}
+.v4-onboard-card{background:#fff;border-radius:20px;padding:40px;max-width:520px;width:90%;text-align:center;box-shadow:0 24px 48px rgba(0,0,0,.15);animation:stepEnter .5s cubic-bezier(.4,0,.2,1)}
+.v4-onboard-card h2{font-family:'Playfair Display',serif;font-size:26px;color:#0f2440;margin-bottom:8px}
+.v4-onboard-card p{color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:20px}
+.v4-onboard-btn{padding:12px 32px;background:linear-gradient(135deg,#0f2440,#1e40af);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;transition:transform .15s}
+.v4-onboard-btn:hover{transform:scale(1.03)}
 </style>
 </head>
 <body>
@@ -62,13 +78,46 @@ const I18N = {
     stepAzienda: "Azienda", stepRicavi: "Ricavi", stepProduzione: "Produzione",
     stepPersonale: "Personale", stepCosti: "Costi Op.", stepInvestimenti: "Investimenti",
     stepIpotesi: "Ipotesi", stepRisultati: "Risultati",
+    descAzienda: "Info generali e scenario", descRicavi: "Linee di prodotto/servizio",
+    descProduzione: "Costi diretti e margini", descPersonale: "Organico e costi HR",
+    descCosti: "Affitti, utenze, marketing", descInvestimenti: "CapEx e ammortamenti",
+    descIpotesi: "Fiscalit\u00E0, WC, debito", descRisultati: "CE, SP, CF, KPI",
     avanti: "Avanti \u2192", indietro: "\u2190 Indietro",
     exportPdf: "\uD83D\uDCD5 PDF", exportExcel: "\uD83D\uDCD7 Excel",
     exportJson: "\uD83D\uDCBE Salva Piano", importJson: "\uD83D\uDCC2 Importa JSON",
+    exportPdfFull: "\uD83D\uDCD5 Esporta PDF", exportExcelFull: "\uD83D\uDCD7 Esporta Excel",
+    exportJsonFull: "\uD83D\uDCBE Esporta JSON", importJsonFull: "\uD83D\uDCC2 Importa JSON",
     ricaviTotali: "Ricavi totali", costoVenduto: "Costo del venduto",
     margineLordo: "MARGINE LORDO", ebitda: "EBITDA", utileNetto: "Utile netto",
     ce: "Conto Economico", sp: "Stato Patrimoniale", cf: "Rendiconto Finanziario",
     kpi: "KPI", benchmark: "Benchmark", sintesi: "Sintesi",
+    anteprimaAnno1: "Anteprima Anno 1",
+    ricavi: "Ricavi", cassa: "Cassa", utile: "Utile",
+    nomeAzienda: "Nome azienda", settore: "Settore (benchmark)", annoInizio: "Anno inizio piano",
+    durataPiano: "Durata piano", tipoAzienda: "Tipo azienda",
+    nomeLinea: "Nome linea", tipo: "Tipo", prezzoUnitario: "Prezzo unitario",
+    margineLordoPct: "Margine lordo %", crescita: "Crescita %", volumi: "Volumi",
+    ruolo: "Ruolo", costoAnnuo: "RAL + contributi", conteggio: "Conteggio",
+    descrizione: "Descrizione", costo: "Costo (IVA esclusa)", vitaUtile: "Vita utile",
+    annoAcquisto: "Anno acquisto", categoria: "Categoria",
+    industria40: "Industria 4.0 / Transizione 5.0", ivaDetraibile: "IVA detraibile",
+    fiscalita: "Fiscalit\u00E0", capitaleCirc: "Capitale Circolante", finanziamenti: "Finanziamenti",
+    contributi: "Contributi", datiIncompleti: "Dati incompleti",
+    warnVolumi: "Tutti i volumi ricavi sono a zero",
+    warnPersonale: "Nessuna risorsa nel personale",
+    warnInvestimenti: "Nessun investimento inserito",
+    warnProcedere: "I risultati potrebbero non essere significativi. Procedere?",
+    salvaPiano: "\uD83D\uDCBE Salva Piano",
+    onboardTitle: "Benvenuto nel Piano Economico",
+    onboardDesc: "Compila passo per passo le informazioni della tua azienda. Al termine avrai un business plan completo con CE, SP, Cash Flow, KPI e benchmark, pronto per la banca o per un bando agevolato.",
+    onboardBtn: "Inizia il piano \u2192",
+    // Soft validation
+    warnMargineAlto: "Margine lordo molto alto per il settore",
+    warnMargineBasso: "Margine lordo molto basso per il settore",
+    warnCrescitaAlta: "Tasso di crescita aggressivo (>30%), giustificalo alla banca",
+    warnHrAlto: "Incidenza personale/ricavi elevata rispetto al settore",
+    warnDsoAlto: "DSO molto alto: fabbisogno di WC elevato",
+    warnDebitoAlto: "Indebitamento elevato rispetto agli investimenti",
     lang: "it"
   },
   en: {
@@ -76,13 +125,45 @@ const I18N = {
     stepAzienda: "Company", stepRicavi: "Revenue", stepProduzione: "Production",
     stepPersonale: "Personnel", stepCosti: "OpEx", stepInvestimenti: "Investments",
     stepIpotesi: "Assumptions", stepRisultati: "Results",
+    descAzienda: "General info & scenario", descRicavi: "Product/service lines",
+    descProduzione: "Direct costs & margins", descPersonale: "Headcount & HR costs",
+    descCosti: "Rent, utilities, marketing", descInvestimenti: "CapEx & depreciation",
+    descIpotesi: "Tax, WC, debt", descRisultati: "P&L, BS, CF, KPIs",
     avanti: "Next \u2192", indietro: "\u2190 Back",
     exportPdf: "\uD83D\uDCD5 PDF", exportExcel: "\uD83D\uDCD7 Excel",
     exportJson: "\uD83D\uDCBE Save Plan", importJson: "\uD83D\uDCC2 Import JSON",
+    exportPdfFull: "\uD83D\uDCD5 Export PDF", exportExcelFull: "\uD83D\uDCD7 Export Excel",
+    exportJsonFull: "\uD83D\uDCBE Export JSON", importJsonFull: "\uD83D\uDCC2 Import JSON",
     ricaviTotali: "Total Revenue", costoVenduto: "Cost of goods sold",
     margineLordo: "GROSS MARGIN", ebitda: "EBITDA", utileNetto: "Net income",
     ce: "Income Statement", sp: "Balance Sheet", cf: "Cash Flow Statement",
     kpi: "KPIs", benchmark: "Benchmark", sintesi: "Summary",
+    anteprimaAnno1: "Year 1 Preview",
+    ricavi: "Revenue", cassa: "Cash", utile: "Net Income",
+    nomeAzienda: "Company name", settore: "Sector (benchmark)", annoInizio: "Plan start year",
+    durataPiano: "Plan duration", tipoAzienda: "Company type",
+    nomeLinea: "Line name", tipo: "Type", prezzoUnitario: "Unit price",
+    margineLordoPct: "Gross margin %", crescita: "Growth %", volumi: "Volumes",
+    ruolo: "Role", costoAnnuo: "Annual cost (gross)", conteggio: "Headcount",
+    descrizione: "Description", costo: "Cost (excl. VAT)", vitaUtile: "Useful life",
+    annoAcquisto: "Purchase year", categoria: "Category",
+    industria40: "Industry 4.0 / Transition 5.0", ivaDetraibile: "VAT deductible",
+    fiscalita: "Tax rates", capitaleCirc: "Working Capital", finanziamenti: "Financing",
+    contributi: "Grants", datiIncompleti: "Incomplete data",
+    warnVolumi: "All revenue volumes are zero",
+    warnPersonale: "No personnel resources entered",
+    warnInvestimenti: "No investments entered",
+    warnProcedere: "Results may not be meaningful. Continue?",
+    salvaPiano: "\uD83D\uDCBE Save Plan",
+    onboardTitle: "Welcome to the Financial Planner",
+    onboardDesc: "Fill in your company details step by step. You will get a complete business plan with P&L, Balance Sheet, Cash Flow, KPIs and benchmarks, ready for banks or grant applications.",
+    onboardBtn: "Start planning \u2192",
+    warnMargineAlto: "Gross margin very high for the sector",
+    warnMargineBasso: "Gross margin very low for the sector",
+    warnCrescitaAlta: "Aggressive growth rate (>30%), justify it",
+    warnHrAlto: "Personnel/revenue ratio high vs sector",
+    warnDsoAlto: "Very high DSO: large WC requirement",
+    warnDebitoAlto: "High debt relative to investments",
     lang: "en"
   }
 };
@@ -2883,6 +2964,53 @@ function StepCompany({
     }
   }, s.icon), /*#__PURE__*/React.createElement("strong", null, s.label), " \u2014 ", s.desc))))));
 }
+
+// V4.6: Soft validation warnings (non-blocking, informational)
+function SoftWarnings({ warnings }) {
+  if (!warnings || warnings.length === 0) return null;
+  return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginTop: 8 } },
+    warnings.map(function(w, i) {
+      return React.createElement("div", { key: i, className: "v4-warn-badge" },
+        React.createElement("span", null, "\u26A0\uFE0F"),
+        React.createElement("span", null, w)
+      );
+    })
+  );
+}
+
+function getSoftWarnings(step, company, revenues, hrs, investments, assumptions, lang) {
+  var t = I18N[lang] || I18N.it;
+  var tmpl = SECTOR_TEMPLATES[company.sectorTemplate] || SECTOR_TEMPLATES.altro;
+  var warns = [];
+  if (step === 1) {
+    // Revenue warnings
+    revenues.forEach(function(r) {
+      if (r.grossMargin > 0 && tmpl.grossMargin > 0) {
+        if (r.grossMargin > tmpl.grossMargin * 1.5) warns.push(t.warnMargineAlto + " (" + (r.grossMargin*100).toFixed(0) + "% vs media " + (tmpl.grossMargin*100).toFixed(0) + "%)");
+        if (r.grossMargin < tmpl.grossMargin * 0.5) warns.push(t.warnMargineBasso + " (" + (r.grossMargin*100).toFixed(0) + "% vs media " + (tmpl.grossMargin*100).toFixed(0) + "%)");
+      }
+      var gRates = r.growthRates || [];
+      gRates.forEach(function(g) { if (g > 0.3) warns.push(t.warnCrescitaAlta + " (" + (g*100).toFixed(0) + "%)"); });
+    });
+  }
+  if (step === 3) {
+    // Personnel warnings
+    var totalHR = hrs.reduce(function(s, h) { return s + h.annualCost * (h.count[0] || 0); }, 0);
+    var totalRev = revenues.reduce(function(s, r) { return s + (r.unitPrice || 0) * (r.volumes[0] || 0); }, 0);
+    if (totalRev > 0 && totalHR / totalRev > tmpl.hrOnRevenue * 1.3) {
+      warns.push(t.warnHrAlto + " (" + (totalHR/totalRev*100).toFixed(0) + "% vs media " + (tmpl.hrOnRevenue*100).toFixed(0) + "%)");
+    }
+  }
+  if (step === 6) {
+    // Assumptions warnings
+    if (assumptions.dso > 90) warns.push(t.warnDsoAlto + " (" + assumptions.dso + " gg)");
+    var totalDebt = (assumptions.debtAmount || []).reduce(function(s, v) { return s + (v || 0); }, 0);
+    var totalInv = investments.reduce(function(s, i) { return s + i.cost; }, 0);
+    if (totalInv > 0 && totalDebt > totalInv * 2) warns.push(t.warnDebitoAlto);
+  }
+  return warns;
+}
+
 function StepRevenue({
   revenues: lines,
   setRevenues: set,
@@ -6010,6 +6138,7 @@ React.createElement(Card, {
 function App() {
   const [step, setStep] = useState(0);
   const [lang, setLang] = useState("it");
+  const [showOnboard, setShowOnboard] = useState(!localStorage.getItem("pe_onboard_done"));
   const t = I18N[lang] || I18N.it;
   const [company, setCompany] = useState(DEFAULTS.company);
   const [revenues, setRevenues] = useState([DEFAULTS.revenueLine()]);
@@ -6084,7 +6213,17 @@ function App() {
     style: {
       minHeight: "100vh"
     }
-  }, /*#__PURE__*/React.createElement("header", {
+  }, showOnboard && React.createElement("div", { className: "v4-onboard-overlay" },
+    React.createElement("div", { className: "v4-onboard-card" },
+      React.createElement("div", { style: { fontSize: 48, marginBottom: 16 } }, "\uD83D\uDCCA"),
+      React.createElement("h2", null, t.onboardTitle),
+      React.createElement("p", null, t.onboardDesc),
+      React.createElement("button", {
+        className: "v4-onboard-btn",
+        onClick: function() { setShowOnboard(false); try { localStorage.setItem("pe_onboard_done", "1"); } catch(e){} }
+      }, t.onboardBtn)
+    )
+  ), /*#__PURE__*/React.createElement("header", {
     style: {
       background: "linear-gradient(135deg,#0f2440 0%,#1e3a5f 50%,#1a365d 100%)",
       padding: "16px 32px",
@@ -6127,16 +6266,16 @@ function App() {
   }), /*#__PURE__*/React.createElement(Btn, {
     small: true,
     onClick: () => fileRef.current.click()
-  }, "\uD83D\uDCC2 Importa JSON"), /*#__PURE__*/React.createElement(Btn, {
+  }, t.importJsonFull), /*#__PURE__*/React.createElement(Btn, {
     small: true,
     onClick: exportJSON
-  }, "\uD83D\uDCBE Esporta JSON"), /*#__PURE__*/React.createElement(Btn, {
+  }, t.exportJsonFull), /*#__PURE__*/React.createElement(Btn, {
     small: true,
     onClick: () => exportExcel(company, financials, revenues, hrs, opexItems, investments, assumptions)
-  }, "\uD83D\uDCD7 Esporta Excel"), /*#__PURE__*/React.createElement(Btn, {
+  }, t.exportExcelFull), /*#__PURE__*/React.createElement(Btn, {
     small: true,
     onClick: () => exportPDF(company, financials, revenues, hrs, opexItems, investments, assumptions)
-  }, "\uD83D\uDCD5 Esporta PDF"), /*#__PURE__*/React.createElement("button", {
+  }, t.exportPdfFull), /*#__PURE__*/React.createElement("button", {
     onClick: function() { setLang(lang === "it" ? "en" : "it"); },
     style: { padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, marginLeft: 8 }
   }, lang === "it" ? "\uD83C\uDDEC\uD83C\uDDE7 EN" : "\uD83C\uDDEE\uD83C\uDDF9 IT"))), /*#__PURE__*/React.createElement("div", {
@@ -6147,7 +6286,9 @@ function App() {
       padding: "0 16px",
       gap: 24
     }
-  }, /*#__PURE__*/React.createElement("nav", {
+  }, /*#__PURE__*/React.createElement("div", { className: "v4-progress", style: { marginBottom: 16 } },
+    React.createElement("div", { className: "v4-progress-bar", style: { width: ((step + 1) / getSteps(lang).length * 100) + "%" } })
+  ), /*#__PURE__*/React.createElement("nav", {
     style: {
       width: 200,
       flexShrink: 0,
@@ -6156,7 +6297,7 @@ function App() {
       top: 0,
       height: "fit-content"
     }
-  }, STEPS.map(s => {
+  }, getSteps(lang).map(s => {
     const vld = s.id < 7 ? getStepValidation(s.id, company, revenues, hrs, opexItems, investments) : "ok";
     const dotCol = vld === "ok" ? "#059669" : vld === "partial" ? "#d97706" : "#d1d5db";
     return React.createElement("button", {
@@ -6192,7 +6333,7 @@ function App() {
       marginBottom: 8,
       letterSpacing: ".05em"
     }
-  }, "Anteprima Anno 1"), [["Ricavi", financials.totalRevenue[0]], ["EBITDA", financials.ebitda[0]], ["Utile", financials.netIncome[0]], ["Cassa", financials.cumCash[0]]].map(([l, v]) => /*#__PURE__*/React.createElement("div", {
+  }, t.anteprimaAnno1), [[t.ricavi, financials.totalRevenue[0]], ["EBITDA", financials.ebitda[0]], [t.utile, financials.netIncome[0]], [t.cassa, financials.cumCash[0]]].map(([l, v]) => /*#__PURE__*/React.createElement("div", {
     key: l,
     style: {
       display: "flex",
@@ -6265,7 +6406,8 @@ function App() {
       minWidth: 0
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "fade-in"
+    className: "step-enter",
+    key: "step-" + step
   }, step === 0 && /*#__PURE__*/React.createElement(StepCompany, {
     company: company,
     setCompany: setCompany,
@@ -6274,19 +6416,19 @@ function App() {
     setOpexItems: setOpexItems,
     setInvestments: setInvestments,
     setAssumptions: setAssumptions
-  }), step === 1 && /*#__PURE__*/React.createElement(StepRevenue, {
+  }), step === 1 && React.createElement(React.Fragment, null, React.createElement(SoftWarnings, { warnings: getSoftWarnings(1, company, revenues, hrs, investments, assumptions, lang) }), /*#__PURE__*/React.createElement(StepRevenue, {
     revenues: revenues,
     setRevenues: setRevenues,
     company: company
-  }), step === 2 && /*#__PURE__*/React.createElement(StepProduction, {
+  })), step === 2 && /*#__PURE__*/React.createElement(StepProduction, {
     revenues: revenues,
     investments: investments,
     company: company
-  }), step === 3 && /*#__PURE__*/React.createElement(StepHR, {
+  }), step === 3 && React.createElement(React.Fragment, null, React.createElement(SoftWarnings, { warnings: getSoftWarnings(3, company, revenues, hrs, investments, assumptions, lang) }), /*#__PURE__*/React.createElement(StepHR, {
     hrs: hrs,
     setHrs: setHrs,
     company: company
-  }), step === 4 && /*#__PURE__*/React.createElement(StepOpEx, {
+  })), step === 4 && /*#__PURE__*/React.createElement(StepOpEx, {
     opexItems: opexItems,
     setOpexItems: setOpexItems,
     company: company
@@ -6294,11 +6436,11 @@ function App() {
     investments: investments,
     setInvestments: setInvestments,
     company: company
-  }), step === 6 && /*#__PURE__*/React.createElement(StepAssumptions, {
+  }), step === 6 && React.createElement(React.Fragment, null, React.createElement(SoftWarnings, { warnings: getSoftWarnings(6, company, revenues, hrs, investments, assumptions, lang) }), /*#__PURE__*/React.createElement(StepAssumptions, {
     assumptions: assumptions,
     setAssumptions: setAssumptions,
     company: company
-  }), step === 7 && /*#__PURE__*/React.createElement(StepResults, {
+  })), step === 7 && /*#__PURE__*/React.createElement(StepResults, {
     financials: financials,
     company: company,
     assumptions: assumptions,
@@ -6334,17 +6476,17 @@ function App() {
     onClick: () => {
       if (step === 6) {
         var warns = [];
-        if (revenues.every(function(r) { return r.volumes.every(function(v) { return v === 0; }); })) warns.push("Tutti i volumi ricavi sono a zero");
-        if (hrs.every(function(h) { return h.count.every(function(c) { return c === 0; }); })) warns.push("Nessuna risorsa nel personale");
-        if (investments.length === 0 || investments.every(function(inv) { return inv.cost === 0; })) warns.push("Nessun investimento inserito");
-        if (warns.length > 0 && !window.confirm("\u26A0\uFE0F Dati incompleti:\n\u2022 " + warns.join("\n\u2022 ") + "\n\nI risultati potrebbero non essere significativi. Procedere?")) return;
+        if (revenues.every(function(r) { return r.volumes.every(function(v) { return v === 0; }); })) warns.push(t.warnVolumi);
+        if (hrs.every(function(h) { return h.count.every(function(c) { return c === 0; }); })) warns.push(t.warnPersonale);
+        if (investments.length === 0 || investments.every(function(inv) { return inv.cost === 0; })) warns.push(t.warnInvestimenti);
+        if (warns.length > 0 && !window.confirm("\u26A0\uFE0F " + t.datiIncompleti + ":\n\u2022 " + warns.join("\n\u2022 ") + "\n\n" + t.warnProcedere)) return;
       }
       setStep(step + 1);
     }
   }, lang === "en" ? "Next \u2192" : "Avanti \u2192") : /*#__PURE__*/React.createElement(Btn, {
     primary: true,
     onClick: exportJSON
-  }, "\uD83D\uDCBE Salva Piano"))))));
+  }, t.salvaPiano))))));
 }
 ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElementById("root"));
 </script>

@@ -21,6 +21,18 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:#f1f5f9}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
 .fade-in{animation:fadeIn .3s ease}@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .pulse{animation:pulse 2s infinite}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+@media(max-width:900px){
+  .v4-sidebar{display:none!important}
+  .v4-content{margin-left:0!important;padding:12px!important}
+  .v4-mobile-tabs{display:flex!important}
+}
+@media(max-width:600px){
+  .v4-content [style*="gridTemplateColumns"]{grid-template-columns:1fr!important}
+  .v4-card{padding:12px!important}
+}
+.v4-mobile-tabs{display:none;overflow-x:auto;gap:4px;padding:8px 0;border-bottom:1px solid #e5e7eb;margin-bottom:12px}
+.v4-mobile-tabs button{flex-shrink:0;padding:6px 12px;font-size:11px;white-space:nowrap;border:1px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer}
+.v4-mobile-tabs button.active{background:#1e40af;color:#fff;border-color:#1e40af}
 </style>
 </head>
 <body>
@@ -129,7 +141,10 @@ const DEFAULTS = {
     type: "tangible",
     cost: 0,
     usefulLife: 5,
-    year: 0
+    year: 0,
+    industry40: false,
+    vatDeductible: true,
+    category: "generic"
   }),
   assumptions: {
     vatRate: .22,
@@ -383,9 +398,13 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const currentLiabilities = YEARS.map((_, i) => ap[i] + totalTax[i] + (assumptions.openingTaxPayable || 0));
   const totalAssetsNoCash = YEARS.map((_, i) => ar[i] + inventory[i] + netFA[i]);
   const totalLiabEq = YEARS.map((_, i) => currentLiabilities[i] + deferredGrant[i] + netDebt[i] + cumTFR[i] + equity[i]);
-  const cash = YEARS.map((_, i) => totalLiabEq[i] - totalAssetsNoCash[i]);
-  const totalAssets = YEARS.map((_, i) => totalAssetsNoCash[i] + Math.max(0, cash[i]));
-  const fundingGap = YEARS.map((_, i) => cash[i] < 0 ? Math.abs(cash[i]) : 0);
+  // FIX v4.3: cash non può essere negativo in SP → fido di cassa (revolving credit)
+  const rawCash = YEARS.map((_, i) => totalLiabEq[i] - totalAssetsNoCash[i]);
+  const revolvingCredit = YEARS.map((_, i) => rawCash[i] < 0 ? Math.abs(rawCash[i]) : 0);
+  const cash = YEARS.map((_, i) => Math.max(0, rawCash[i]));
+  const totalLiabEqAdj = YEARS.map((_, i) => totalLiabEq[i] + revolvingCredit[i]);
+  const totalAssets = YEARS.map((_, i) => totalAssetsNoCash[i] + cash[i]);
+  const fundingGap = revolvingCredit;
 
   // CF Operating: NI + Dep + WC change (relative to opening values for Y1) + grant cash adjustment
   const oAR = assumptions.openingAR || 0;
@@ -551,6 +570,8 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     localRepayment,
     dscrCash,
     irapBase,
+    revolvingCredit,
+    totalLiabEqAdj,
 
     // V3: CE Riclassificato a Valore Aggiunto
     ceRiclass: YEARS.map((_, i) => ({
@@ -1555,16 +1576,20 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
   }, {
     label: "Fondo TFR",
     values: f.cumTFR
-  }, {
+  }].concat(f.revolvingCredit.some(function(v){return v > 0;}) ? [{
+    label: "Fido di cassa (revolving)",
+    values: f.revolvingCredit,
+    bold: true
+  }] : []).concat([{
     label: "Patrimonio netto",
     values: f.equity,
     bold: true
   }, {
     label: "TOTALE PASSIVO",
-    values: f.totalLiabEq,
+    values: f.totalLiabEqAdj,
     bold: true,
     highlight: true
-  }]);
+  }]));
   if (f.fundingGap.some(v => v > 0)) {
     addTable("⚠️ FABBISOGNO FINANZIARIO", [{
       label: "Gap di cassa (copertura necessaria)",
@@ -3641,7 +3666,7 @@ function StepInvestments({
       label: "Immateriale"
     }]
   }), /*#__PURE__*/React.createElement(InputField, {
-    label: "Costo",
+    label: "Costo (IVA esclusa)",
     value: inv.cost,
     onChange: v => upd(i, "cost", v),
     suffix: "\u20AC"
@@ -3660,7 +3685,42 @@ function StepInvestments({
       value: i,
       label: YL[i]
     }))
-  })))), /*#__PURE__*/React.createElement(Btn, {
+  })), /*#__PURE__*/React.createElement("div", {
+    style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 8 }
+  }, /*#__PURE__*/React.createElement(SelectField, {
+    label: "Categoria",
+    value: inv.category || "generic",
+    onChange: v => upd(i, "category", v),
+    options: [
+      { value: "generic", label: "Generico" },
+      { value: "macchinari", label: "Macchinari" },
+      { value: "attrezzature", label: "Attrezzature" },
+      { value: "software", label: "Software/Brevetti" },
+      { value: "automezzi", label: "Automezzi" },
+      { value: "mobili", label: "Mobili e arredi" },
+      { value: "impianti", label: "Impianti" },
+      { value: "fabbricati", label: "Fabbricati" }
+    ]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: { display: "flex", alignItems: "center", gap: 8, paddingTop: 22 }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: inv.industry40 || false,
+    onChange: e => upd(i, "industry40", e.target.checked),
+    style: { width: 18, height: 18, accentColor: "#1e40af" }
+  }), /*#__PURE__*/React.createElement("label", {
+    style: { fontSize: 13, color: "#374151", cursor: "pointer" }
+  }, "\uD83C\uDFED Industria 4.0 / Transizione 5.0")),
+  /*#__PURE__*/React.createElement("div", {
+    style: { display: "flex", alignItems: "center", gap: 8, paddingTop: 22 }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: inv.vatDeductible !== false,
+    onChange: e => upd(i, "vatDeductible", e.target.checked),
+    style: { width: 18, height: 18, accentColor: "#1e40af" }
+  }), /*#__PURE__*/React.createElement("label", {
+    style: { fontSize: 13, color: "#374151", cursor: "pointer" }
+  }, "IVA detraibile"))))), /*#__PURE__*/React.createElement(Btn, {
     primary: true,
     onClick: add
   }, "+ Aggiungi Investimento"));
@@ -5250,6 +5310,11 @@ React.createElement(Card, {
     label: "Fondo TFR",
     values: f.cumTFR,
     n: n
+  }), f.revolvingCredit.some(function(v){return v > 0;}) && /*#__PURE__*/React.createElement(YearRow, {
+    label: "\u26A0\uFE0F Fido di cassa (revolving)",
+    values: f.revolvingCredit,
+    n: n,
+    bold: true
   }), /*#__PURE__*/React.createElement(Div, null), /*#__PURE__*/React.createElement(YearRow, {
     label: "Patrimonio netto",
     values: f.equity,
@@ -5257,7 +5322,7 @@ React.createElement(Card, {
     bold: true
   }), /*#__PURE__*/React.createElement(Div, null), /*#__PURE__*/React.createElement(YearRow, {
     label: "TOTALE PASSIVO E PN",
-    values: f.totalLiabEq,
+    values: f.totalLiabEqAdj,
     n: n,
     bold: true,
     highlight: true
@@ -5939,7 +6004,16 @@ function App() {
     onClick: () => exportPDF(company, financials, revenues, hrs, opexItems, investments, assumptions)
   }, "\uD83D\uDCD5 PDF")), step < STEPS.length - 1 ? /*#__PURE__*/React.createElement(Btn, {
     primary: true,
-    onClick: () => setStep(step + 1)
+    onClick: () => {
+      if (step === 6) {
+        var warns = [];
+        if (revenues.every(function(r) { return r.volumes.every(function(v) { return v === 0; }); })) warns.push("Tutti i volumi ricavi sono a zero");
+        if (hrs.every(function(h) { return h.count.every(function(c) { return c === 0; }); })) warns.push("Nessuna risorsa nel personale");
+        if (investments.length === 0 || investments.every(function(inv) { return inv.cost === 0; })) warns.push("Nessun investimento inserito");
+        if (warns.length > 0 && !window.confirm("\u26A0\uFE0F Dati incompleti:\n\u2022 " + warns.join("\n\u2022 ") + "\n\nI risultati potrebbero non essere significativi. Procedere?")) return;
+      }
+      setStep(step + 1);
+    }
   }, "Avanti \u2192") : /*#__PURE__*/React.createElement(Btn, {
     primary: true,
     onClick: exportJSON

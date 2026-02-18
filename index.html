@@ -365,6 +365,13 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const inventory = YEARS.map((_, i) => totalCOGS[i] * assumptions.dio / 360);
   const ap = YEARS.map((_, i) => totalCOGS[i] * (1 + assumptions.vatRate) * assumptions.dpo / 360);
   const totalInvestments = YEARS.map((_, i) => investments.filter(inv => inv.year === i).reduce((s, inv) => s + inv.cost, 0));
+  // FIX v4.4: IVA su investimenti nel cash flow
+  const vatOnInvestments = YEARS.map((_, i) => investments.filter(inv => inv.year === i).reduce((s, inv) => {
+    var vatAmount = inv.cost * (assumptions.vatRate || 0.22);
+    if (inv.vatDeductible === false) return s; // IVA indetraibile già inclusa nel costo
+    return s + vatAmount; // IVA detraibile: esborso cash temporaneo
+  }, 0));
+  const totalInvestmentsCash = YEARS.map((_, i) => totalInvestments[i] + vatOnInvestments[i]);
   const accDep = YEARS.map((_, i) => depreciation.slice(0, i + 1).reduce((s, d) => s + d, 0));
   const grossFA = YEARS.map((_, i) => totalInvestments.slice(0, i + 1).reduce((s, t) => s + t, 0));
   const netFA = YEARS.map((_, i) => {
@@ -419,7 +426,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     const grantAdj = grantCashIn[i] - grantIncome[i];
     return netIncome[i] + depreciation[i] + tfrAccrual[i] + wcTrade + wcTax + grantAdj;
   });
-  const cfInvesting = YEARS.map((_, i) => -totalInvestments[i]);
+  const cfInvesting = YEARS.map((_, i) => -totalInvestmentsCash[i]);
   // CF Financing: NO grant here (grant cash is captured via operating adjustment)
   const cfFinancing = YEARS.map((_, i) => (assumptions.debtAmount[i] || 0) - (localRepayment[i] || 0) + (assumptions.equityInjection[i] || 0) - dividends[i]);
   const netCF = YEARS.map((_, i) => cfOperating[i] + cfInvesting[i] + cfFinancing[i]);
@@ -572,6 +579,8 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     irapBase,
     revolvingCredit,
     totalLiabEqAdj,
+    vatOnInvestments,
+    totalInvestmentsCash,
 
     // V3: CE Riclassificato a Valore Aggiunto
     ceRiclass: YEARS.map((_, i) => ({
@@ -1149,7 +1158,10 @@ async function parseBilancioFile(file) {
   } else if (["xlsx", "xls", "csv"].includes(ext)) {
     return await parseBilancioExcel(file);
   } else {
-    throw new Error("Formato non supportato. Usa PDF, XLSX, XLS o CSV.");
+    if (ext === "xbrl" || ext === "xml") {
+      throw new Error("Formato XBRL/XML rilevato. Converti prima in PDF tramite il sito dell'Agenzia delle Entrate o esporta da TeamSystem/Zucchetti in formato Excel.");
+    }
+    throw new Error("Formato ." + ext + " non supportato. Formati accettati: PDF (bilancio depositato), XLSX, XLS, CSV (export gestionali).");
   }
 }
 
@@ -1745,6 +1757,43 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     label: "Ricavo per dipendente",
     values: f.revPerEmp
   }]);
+
+  // V4.4: Benchmark table nel PDF
+  if (f.benchmarks && f.benchmarks.comparison) {
+    doc.addPage();
+    y = pg.my;
+    addTitle("CONFRONTO BENCHMARK DI SETTORE");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(55, 65, 81);
+    doc.text("KPI del piano confrontati con la mediana del settore " + (f.benchmarks.sector.label || ""), pg.mx, y);
+    y += 8;
+    var bmHeaders = [["KPI", "Piano", "Benchmark", "Esito"]];
+    var bmRows = f.benchmarks.comparison.map(function(b) {
+      var fVal = b.unit === "pct" ? fmtPct(b.actual) : b.unit === "gg" ? ((b.actual||0) + " gg") : ((b.actual||0).toFixed(1) + "x");
+      var fBen = b.unit === "pct" ? fmtPct(b.benchmark) : b.unit === "gg" ? (b.benchmark + " gg") : (b.benchmark.toFixed(1) + "x");
+      var isGood = b.invert ? (b.actual <= b.benchmark * 1.1) : (b.actual >= b.benchmark * 0.9);
+      var isBad = b.invert ? (b.actual > b.benchmark * 1.5) : (b.actual < b.benchmark * 0.5);
+      return [b.kpi, fVal, fBen, isGood ? "OK" : isBad ? "CRITICO" : "ATTENZIONE"];
+    });
+    doc.autoTable({
+      head: bmHeaders,
+      body: bmRows,
+      startY: y,
+      margin: { left: pg.mx, right: pg.mx },
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: [30, 58, 95], textColor: 255, fontStyle: "bold" },
+      columnStyles: { 0: { cellWidth: 50 }, 3: { fontStyle: "bold" } },
+      didParseCell: function(data) {
+        if (data.section === "body" && data.column.index === 3) {
+          if (data.cell.raw === "OK") data.cell.styles.textColor = [5, 150, 105];
+          else if (data.cell.raw === "CRITICO") data.cell.styles.textColor = [220, 38, 38];
+          else data.cell.styles.textColor = [217, 119, 6];
+        }
+      }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  }
 
   // V4.2: Nota Integrativa nel PDF
   doc.addPage();
@@ -4758,6 +4807,13 @@ function generateExecutiveSummary(company, f, n, revenues, investments, hrs) {
   else { text += "DSCR a regime: " + dscrLast + "x (sotto soglia 1,2x). "; }
   text += "Organico: " + headLast + " risorse. Investimenti: " + fmtEur(totalInv) + ". ";
   text += "Break-Even: " + bepLast + " (margine sicurezza " + bepM + ").";
+  // Warnings
+  var warns = [];
+  if (f.art2447 && f.art2447.some(function(v) { return v; })) warns.push("PN negativo (art. 2447 CC)");
+  if (f.netIncome.every(function(v) { return v < 0; })) warns.push("Piano sempre in perdita");
+  if (f.dscr.some(function(v) { return v !== null && v < 1.0; })) warns.push("DSCR sotto 1.0x");
+  if (f.fundingGap.some(function(v) { return v > 0; })) warns.push("Fabbisogno finanziario scoperto");
+  if (warns.length > 0) text += " CRITICITA: " + warns.join("; ") + ".";
   return text;
 }
 
@@ -4776,7 +4832,14 @@ function generateNotaIntegrativa(company, f, n, revenues, investments, hrs, opex
   });
   var invList = investments.map(function(inv) { return inv.name + " (" + fmtEur(inv.cost) + ", " + inv.usefulLife + " anni)"; }).join("; ");
   sections.push({ title: "4. Investimenti e ammortamenti",
-    text: "Investimenti: " + invList + ". Ammortamento SLN. Totale: " + fmtEur(investments.reduce(function(s, i) { return s + i.cost; }, 0)) + "."
+    text: (function() {
+      var t = "Investimenti: " + invList + ". Ammortamento SLN. Totale: " + fmtEur(investments.reduce(function(s, i) { return s + i.cost; }, 0)) + ".";
+      var i40 = investments.filter(function(i) { return i.industry40; });
+      if (i40.length > 0) t += " Di cui " + i40.length + " beni Industria 4.0/Transizione 5.0 (" + i40.map(function(i) { return i.name; }).join(", ") + ") potenzialmente agevolabili.";
+      var nonDeduct = investments.filter(function(i) { return i.vatDeductible === false; });
+      if (nonDeduct.length > 0) t += " IVA indetraibile su: " + nonDeduct.map(function(i) { return i.name; }).join(", ") + ".";
+      return t;
+    })()
   });
   sections.push({ title: "5. Struttura finanziaria",
     text: "DSO " + assumptions.dso + "gg, DPO " + assumptions.dpo + "gg, DIO " + assumptions.dio + "gg (CCC: " + f.ccc + "gg). Tasso: " + (assumptions.interestRate * 100).toFixed(2) + "%. " + (assumptions.debtType === "francese" ? "Ammortamento francese " + (assumptions.debtDuration || 5) + " anni. " : "") + (assumptions.grantAmount > 0 ? "Contributo: " + fmtEur(assumptions.grantAmount) + " su " + assumptions.grantYears + " anni." : "")
@@ -5509,6 +5572,15 @@ React.createElement(Card, {
     values: f.dscrCash,
     n: n,
     dec: 2
+  }), f.burnRate.some(function(v){return v > 0;}) && /*#__PURE__*/React.createElement(YearRow, {
+    label: "\uD83D\uDD25 Burn Rate (\u20AC/mese)",
+    values: f.burnRate,
+    n: n
+  }), f.runway.some(function(v){return v !== null;}) && /*#__PURE__*/React.createElement(YearRow, {
+    label: "\u23F1\uFE0F Runway (mesi)",
+    values: f.runway.map(function(v){return v !== null ? Math.round(v) : null;}),
+    n: n,
+    dec: 0
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "ICR (Interest Coverage)",
     values: f.icr,
@@ -5616,6 +5688,20 @@ React.createElement(Card, {
           React.createElement("div", { style: { padding: 16, background: (f.dscr[last] || 0) >= 1.2 ? "#f0fdf4" : "#fef3c7", borderRadius: 10, textAlign: "center" } },
             React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 4 } }, "DSCR"),
             React.createElement("div", { style: { fontSize: 20, fontWeight: 700, color: (f.dscr[last] || 0) >= 1.2 ? "#16a34a" : "#d97706" } }, f.dscr[last] !== null ? f.dscr[last].toFixed(2) + "x" : "N/A")
+          )
+        ),
+        f.burnRate[0] > 0 && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 } },
+          React.createElement("div", { style: { padding: 12, background: "#fef2f2", borderRadius: 10, textAlign: "center" } },
+            React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 4 } }, "\uD83D\uDD25 Burn Rate Anno 1"),
+            React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "#dc2626" } }, fmtEur(f.burnRate[0]) + "/mese")
+          ),
+          React.createElement("div", { style: { padding: 12, background: f.runway[0] && f.runway[0] > 12 ? "#f0fdf4" : "#fef3c7", borderRadius: 10, textAlign: "center" } },
+            React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 4 } }, "\u23F1\uFE0F Runway Anno 1"),
+            React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: f.runway[0] && f.runway[0] > 12 ? "#16a34a" : "#d97706" } }, f.runway[0] ? Math.round(f.runway[0]) + " mesi" : "N/A")
+          ),
+          React.createElement("div", { style: { padding: 12, background: "#eff6ff", borderRadius: 10, textAlign: "center" } },
+            React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 4 } }, "CAGR Ricavi"),
+            React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "#1e40af" } }, (f.revenueCAGR * 100).toFixed(1) + "%")
           )
         ),
         React.createElement("div", { style: { lineHeight: 1.7, color: "#374151", fontSize: 14 } },

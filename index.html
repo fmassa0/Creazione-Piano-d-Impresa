@@ -1603,7 +1603,7 @@ function exportPDF(company, financials, revenues, hrs, opexItems, investments, a
     highlight: true
   }]));
   if (f.fundingGap.some(v => v > 0)) {
-    addTable("⚠️ FABBISOGNO FINANZIARIO", [{
+    addTable("/!\\ FABBISOGNO FINANZIARIO", [{
       label: "Gap di cassa (copertura necessaria)",
       values: f.fundingGap,
       bold: true

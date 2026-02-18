@@ -33,15 +33,10 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .v4-mobile-tabs{display:none;overflow-x:auto;gap:4px;padding:8px 0;border-bottom:1px solid #e5e7eb;margin-bottom:12px}
 .v4-mobile-tabs button{flex-shrink:0;padding:6px 12px;font-size:11px;white-space:nowrap;border:1px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer}
 .v4-mobile-tabs button.active{background:#1e40af;color:#fff;border-color:#1e40af}
-/* v4.6 UX Polish */
 .step-enter{animation:stepEnter .35s cubic-bezier(.4,0,.2,1)}
 @keyframes stepEnter{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
-.v4-progress{height:3px;background:#e5e7eb;border-radius:2px;overflow:hidden;margin:0 16px 0 16px}
+.v4-progress{height:3px;background:#e5e7eb;border-radius:2px;overflow:hidden}
 .v4-progress-bar{height:100%;background:linear-gradient(90deg,#1e40af,#3b82f6);border-radius:2px;transition:width .4s cubic-bezier(.4,0,.2,1)}
-.v4-card-hover{transition:box-shadow .2s,transform .15s}
-.v4-card-hover:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)!important;transform:translateY(-1px)}
-.v4-tooltip{position:relative}
-.v4-tooltip:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:6px 10px;border-radius:6px;font-size:11px;white-space:nowrap;z-index:100;pointer-events:none}
 .v4-warn-badge{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:#fefce8;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;margin-top:8px}
 .v4-onboard-overlay{position:fixed;inset:0;background:rgba(15,36,64,.7);backdrop-filter:blur(4px);z-index:1000;display:flex;align-items:center;justify-content:center}
 .v4-onboard-card{background:#fff;border-radius:20px;padding:40px;max-width:520px;width:90%;text-align:center;box-shadow:0 24px 48px rgba(0,0,0,.15);animation:stepEnter .5s cubic-bezier(.4,0,.2,1)}
@@ -71,7 +66,7 @@ function updateYL(company) {
   const sy = company && company.startYear ? company.startYear : new Date().getFullYear();
   YL[0] = String(sy); YL[1] = String(sy+1); YL[2] = String(sy+2); YL[3] = String(sy+3); YL[4] = String(sy+4);
 }
-// V4.5: Multi-lingua (IT/EN)
+// V4.6: Multi-lingua (IT/EN) expanded
 const I18N = {
   it: {
     appTitle: "Piano Economico",
@@ -87,37 +82,26 @@ const I18N = {
     exportJson: "\uD83D\uDCBE Salva Piano", importJson: "\uD83D\uDCC2 Importa JSON",
     exportPdfFull: "\uD83D\uDCD5 Esporta PDF", exportExcelFull: "\uD83D\uDCD7 Esporta Excel",
     exportJsonFull: "\uD83D\uDCBE Esporta JSON", importJsonFull: "\uD83D\uDCC2 Importa JSON",
+    salvaPiano: "\uD83D\uDCBE Salva Piano",
     ricaviTotali: "Ricavi totali", costoVenduto: "Costo del venduto",
     margineLordo: "MARGINE LORDO", ebitda: "EBITDA", utileNetto: "Utile netto",
     ce: "Conto Economico", sp: "Stato Patrimoniale", cf: "Rendiconto Finanziario",
     kpi: "KPI", benchmark: "Benchmark", sintesi: "Sintesi",
-    anteprimaAnno1: "Anteprima Anno 1",
-    ricavi: "Ricavi", cassa: "Cassa", utile: "Utile",
-    nomeAzienda: "Nome azienda", settore: "Settore (benchmark)", annoInizio: "Anno inizio piano",
-    durataPiano: "Durata piano", tipoAzienda: "Tipo azienda",
-    nomeLinea: "Nome linea", tipo: "Tipo", prezzoUnitario: "Prezzo unitario",
-    margineLordoPct: "Margine lordo %", crescita: "Crescita %", volumi: "Volumi",
-    ruolo: "Ruolo", costoAnnuo: "RAL + contributi", conteggio: "Conteggio",
-    descrizione: "Descrizione", costo: "Costo (IVA esclusa)", vitaUtile: "Vita utile",
-    annoAcquisto: "Anno acquisto", categoria: "Categoria",
-    industria40: "Industria 4.0 / Transizione 5.0", ivaDetraibile: "IVA detraibile",
-    fiscalita: "Fiscalit\u00E0", capitaleCirc: "Capitale Circolante", finanziamenti: "Finanziamenti",
-    contributi: "Contributi", datiIncompleti: "Dati incompleti",
+    anteprimaAnno1: "Anteprima Anno 1", ricavi: "Ricavi", cassa: "Cassa", utile: "Utile",
+    datiIncompleti: "Dati incompleti",
     warnVolumi: "Tutti i volumi ricavi sono a zero",
     warnPersonale: "Nessuna risorsa nel personale",
     warnInvestimenti: "Nessun investimento inserito",
     warnProcedere: "I risultati potrebbero non essere significativi. Procedere?",
-    salvaPiano: "\uD83D\uDCBE Salva Piano",
-    onboardTitle: "Benvenuto nel Piano Economico",
-    onboardDesc: "Compila passo per passo le informazioni della tua azienda. Al termine avrai un business plan completo con CE, SP, Cash Flow, KPI e benchmark, pronto per la banca o per un bando agevolato.",
-    onboardBtn: "Inizia il piano \u2192",
-    // Soft validation
     warnMargineAlto: "Margine lordo molto alto per il settore",
     warnMargineBasso: "Margine lordo molto basso per il settore",
-    warnCrescitaAlta: "Tasso di crescita aggressivo (>30%), giustificalo alla banca",
+    warnCrescitaAlta: "Tasso di crescita aggressivo (>30%)",
     warnHrAlto: "Incidenza personale/ricavi elevata rispetto al settore",
     warnDsoAlto: "DSO molto alto: fabbisogno di WC elevato",
     warnDebitoAlto: "Indebitamento elevato rispetto agli investimenti",
+    onboardTitle: "Benvenuto nel Piano Economico",
+    onboardDesc: "Compila passo per passo le informazioni della tua azienda. Al termine avrai un business plan completo con CE, SP, Cash Flow, KPI e benchmark, pronto per la banca o per un bando agevolato.",
+    onboardBtn: "Inizia il piano \u2192",
     lang: "it"
   },
   en: {
@@ -134,51 +118,40 @@ const I18N = {
     exportJson: "\uD83D\uDCBE Save Plan", importJson: "\uD83D\uDCC2 Import JSON",
     exportPdfFull: "\uD83D\uDCD5 Export PDF", exportExcelFull: "\uD83D\uDCD7 Export Excel",
     exportJsonFull: "\uD83D\uDCBE Export JSON", importJsonFull: "\uD83D\uDCC2 Import JSON",
+    salvaPiano: "\uD83D\uDCBE Save Plan",
     ricaviTotali: "Total Revenue", costoVenduto: "Cost of goods sold",
     margineLordo: "GROSS MARGIN", ebitda: "EBITDA", utileNetto: "Net income",
     ce: "Income Statement", sp: "Balance Sheet", cf: "Cash Flow Statement",
     kpi: "KPIs", benchmark: "Benchmark", sintesi: "Summary",
-    anteprimaAnno1: "Year 1 Preview",
-    ricavi: "Revenue", cassa: "Cash", utile: "Net Income",
-    nomeAzienda: "Company name", settore: "Sector (benchmark)", annoInizio: "Plan start year",
-    durataPiano: "Plan duration", tipoAzienda: "Company type",
-    nomeLinea: "Line name", tipo: "Type", prezzoUnitario: "Unit price",
-    margineLordoPct: "Gross margin %", crescita: "Growth %", volumi: "Volumes",
-    ruolo: "Role", costoAnnuo: "Annual cost (gross)", conteggio: "Headcount",
-    descrizione: "Description", costo: "Cost (excl. VAT)", vitaUtile: "Useful life",
-    annoAcquisto: "Purchase year", categoria: "Category",
-    industria40: "Industry 4.0 / Transition 5.0", ivaDetraibile: "VAT deductible",
-    fiscalita: "Tax rates", capitaleCirc: "Working Capital", finanziamenti: "Financing",
-    contributi: "Grants", datiIncompleti: "Incomplete data",
+    anteprimaAnno1: "Year 1 Preview", ricavi: "Revenue", cassa: "Cash", utile: "Net Income",
+    datiIncompleti: "Incomplete data",
     warnVolumi: "All revenue volumes are zero",
     warnPersonale: "No personnel resources entered",
     warnInvestimenti: "No investments entered",
     warnProcedere: "Results may not be meaningful. Continue?",
-    salvaPiano: "\uD83D\uDCBE Save Plan",
-    onboardTitle: "Welcome to the Financial Planner",
-    onboardDesc: "Fill in your company details step by step. You will get a complete business plan with P&L, Balance Sheet, Cash Flow, KPIs and benchmarks, ready for banks or grant applications.",
-    onboardBtn: "Start planning \u2192",
     warnMargineAlto: "Gross margin very high for the sector",
     warnMargineBasso: "Gross margin very low for the sector",
-    warnCrescitaAlta: "Aggressive growth rate (>30%), justify it",
+    warnCrescitaAlta: "Aggressive growth rate (>30%)",
     warnHrAlto: "Personnel/revenue ratio high vs sector",
     warnDsoAlto: "Very high DSO: large WC requirement",
     warnDebitoAlto: "High debt relative to investments",
+    onboardTitle: "Welcome to the Financial Planner",
+    onboardDesc: "Fill in your company details step by step. You will get a complete business plan with P&L, Balance Sheet, Cash Flow, KPIs and benchmarks, ready for banks or grant applications.",
+    onboardBtn: "Start planning \u2192",
     lang: "en"
   }
 };
-
-function getSteps(lang) {
-  var t = I18N[lang] || I18N.it;
+function getSteps(lng) {
+  var tr = I18N[lng] || I18N.it;
   return [
-    { id: 0, label: t.stepAzienda, icon: "\uD83C\uDFE2", desc: t.descAzienda },
-    { id: 1, label: t.stepRicavi, icon: "\uD83D\uDCC8", desc: t.descRicavi },
-    { id: 2, label: t.stepProduzione, icon: "\uD83C\uDFED", desc: t.descProduzione },
-    { id: 3, label: t.stepPersonale, icon: "\uD83D\uDC65", desc: t.descPersonale },
-    { id: 4, label: t.stepCosti, icon: "\uD83D\uDCBC", desc: t.descCosti },
-    { id: 5, label: t.stepInvestimenti, icon: "\uD83D\uDD27", desc: t.descInvestimenti },
-    { id: 6, label: t.stepIpotesi, icon: "\u2699\uFE0F", desc: t.descIpotesi },
-    { id: 7, label: t.stepRisultati, icon: "\uD83D\uDCCA", desc: t.descRisultati }
+    { id: 0, label: tr.stepAzienda, icon: "\uD83C\uDFE2", desc: tr.descAzienda },
+    { id: 1, label: tr.stepRicavi, icon: "\uD83D\uDCC8", desc: tr.descRicavi },
+    { id: 2, label: tr.stepProduzione, icon: "\uD83C\uDFED", desc: tr.descProduzione },
+    { id: 3, label: tr.stepPersonale, icon: "\uD83D\uDC65", desc: tr.descPersonale },
+    { id: 4, label: tr.stepCosti, icon: "\uD83D\uDCBC", desc: tr.descCosti },
+    { id: 5, label: tr.stepInvestimenti, icon: "\uD83D\uDD27", desc: tr.descInvestimenti },
+    { id: 6, label: tr.stepIpotesi, icon: "\u2699\uFE0F", desc: tr.descIpotesi },
+    { id: 7, label: tr.stepRisultati, icon: "\uD83D\uDCCA", desc: tr.descRisultati }
   ];
 }
 
@@ -2978,51 +2951,41 @@ function StepCompany({
     }
   }, s.icon), /*#__PURE__*/React.createElement("strong", null, s.label), " \u2014 ", s.desc))))));
 }
-
-// V4.6: Soft validation warnings (non-blocking, informational)
-function SoftWarnings({ warnings }) {
-  if (!warnings || warnings.length === 0) return null;
-  return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginTop: 8 } },
-    warnings.map(function(w, i) {
-      return React.createElement("div", { key: i, className: "v4-warn-badge" },
-        React.createElement("span", null, "\u26A0\uFE0F"),
-        React.createElement("span", null, w)
-      );
+// V4.6: Soft validation warnings (non-blocking)
+function SoftWarnings(props) {
+  var w = props.warnings;
+  if (!w || w.length === 0) return null;
+  return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 } },
+    w.map(function(msg, i) {
+      return React.createElement("div", { key: i, className: "v4-warn-badge" }, "\u26A0\uFE0F ", msg);
     })
   );
 }
-
-function getSoftWarnings(step, company, revenues, hrs, investments, assumptions, lang) {
-  var t = I18N[lang] || I18N.it;
-  var tmpl = SECTOR_TEMPLATES[company.sectorTemplate] || SECTOR_TEMPLATES.altro;
-  var warns = [];
-  if (step === 1) {
-    // Revenue warnings
-    revenues.forEach(function(r) {
+function getSoftWarnings(stepNum, co, revs, hrs, invs, assu, lng) {
+  var tr = I18N[lng] || I18N.it;
+  var tmpl = SECTOR_TEMPLATES[co.sectorTemplate] || SECTOR_TEMPLATES.altro;
+  var w = [];
+  if (stepNum === 1) {
+    revs.forEach(function(r) {
       if (r.grossMargin > 0 && tmpl.grossMargin > 0) {
-        if (r.grossMargin > tmpl.grossMargin * 1.5) warns.push(t.warnMargineAlto + " (" + (r.grossMargin*100).toFixed(0) + "% vs media " + (tmpl.grossMargin*100).toFixed(0) + "%)");
-        if (r.grossMargin < tmpl.grossMargin * 0.5) warns.push(t.warnMargineBasso + " (" + (r.grossMargin*100).toFixed(0) + "% vs media " + (tmpl.grossMargin*100).toFixed(0) + "%)");
+        if (r.grossMargin > tmpl.grossMargin * 1.5) w.push(tr.warnMargineAlto);
+        if (r.grossMargin < tmpl.grossMargin * 0.5) w.push(tr.warnMargineBasso);
       }
-      var gRates = r.growthRates || [];
-      gRates.forEach(function(g) { if (g > 0.3) warns.push(t.warnCrescitaAlta + " (" + (g*100).toFixed(0) + "%)"); });
+      (r.growthRates || []).forEach(function(g) { if (g > 0.3) w.push(tr.warnCrescitaAlta); });
     });
   }
-  if (step === 3) {
-    // Personnel warnings
-    var totalHR = hrs.reduce(function(s, h) { return s + h.annualCost * (h.count[0] || 0); }, 0);
-    var totalRev = revenues.reduce(function(s, r) { return s + (r.unitPrice || 0) * (r.volumes[0] || 0); }, 0);
-    if (totalRev > 0 && totalHR / totalRev > tmpl.hrOnRevenue * 1.3) {
-      warns.push(t.warnHrAlto + " (" + (totalHR/totalRev*100).toFixed(0) + "% vs media " + (tmpl.hrOnRevenue*100).toFixed(0) + "%)");
-    }
+  if (stepNum === 3) {
+    var tHR = hrs.reduce(function(s, h) { return s + h.annualCost * (h.count[0] || 0); }, 0);
+    var tRev = revs.reduce(function(s, r) { return s + (r.unitPrice || 0) * (r.volumes[0] || 0); }, 0);
+    if (tRev > 0 && tHR / tRev > (tmpl.hrOnRevenue || 0.35) * 1.3) w.push(tr.warnHrAlto);
   }
-  if (step === 6) {
-    // Assumptions warnings
-    if (assumptions.dso > 90) warns.push(t.warnDsoAlto + " (" + assumptions.dso + " gg)");
-    var totalDebt = (assumptions.debtAmount || []).reduce(function(s, v) { return s + (v || 0); }, 0);
-    var totalInv = investments.reduce(function(s, i) { return s + i.cost; }, 0);
-    if (totalInv > 0 && totalDebt > totalInv * 2) warns.push(t.warnDebitoAlto);
+  if (stepNum === 6) {
+    if (assu.dso > 90) w.push(tr.warnDsoAlto);
+    var tDebt = (assu.debtAmount || []).reduce(function(s, v) { return s + (v || 0); }, 0);
+    var tInv = invs.reduce(function(s, inv) { return s + inv.cost; }, 0);
+    if (tInv > 0 && tDebt > tInv * 2) w.push(tr.warnDebitoAlto);
   }
-  return warns;
+  return w;
 }
 
 function StepRevenue({
@@ -6232,10 +6195,7 @@ function App() {
       React.createElement("div", { style: { fontSize: 48, marginBottom: 16 } }, "\uD83D\uDCCA"),
       React.createElement("h2", null, t.onboardTitle),
       React.createElement("p", null, t.onboardDesc),
-      React.createElement("button", {
-        className: "v4-onboard-btn",
-        onClick: function() { setShowOnboard(false); try { localStorage.setItem("pe_onboard_done", "1"); } catch(e){} }
-      }, t.onboardBtn)
+      React.createElement("button", { className: "v4-onboard-btn", onClick: function() { setShowOnboard(false); try { localStorage.setItem("pe_onboard_done", "1"); } catch(e){} } }, t.onboardBtn)
     )
   ), /*#__PURE__*/React.createElement("header", {
     style: {
@@ -6292,7 +6252,7 @@ function App() {
   }, t.exportPdfFull), /*#__PURE__*/React.createElement("button", {
     onClick: function() { setLang(lang === "it" ? "en" : "it"); },
     style: { padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, marginLeft: 8 }
-  }, lang === "it" ? "\uD83C\uDDEC\uD83C\uDDE7 EN" : "\uD83C\uDDEE\uD83C\uDDF9 IT"))), /*#__PURE__*/React.createElement("div", {
+  }, lang === "it" ? "\uD83C\uDDEC\uD83C\uDDE7 EN" : "\uD83C\uDDEE\uD83C\uDDF9 IT"))), React.createElement("div", { className: "v4-progress" }, React.createElement("div", { className: "v4-progress-bar", style: { width: ((step + 1) / 8 * 100) + "%" } })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       maxWidth: 1200,
@@ -6300,9 +6260,7 @@ function App() {
       padding: "0 16px",
       gap: 24
     }
-  }, /*#__PURE__*/React.createElement("div", { className: "v4-progress", style: { marginBottom: 16 } },
-    React.createElement("div", { className: "v4-progress-bar", style: { width: ((step + 1) / getSteps(lang).length * 100) + "%" } })
-  ), /*#__PURE__*/React.createElement("nav", {
+  }, /*#__PURE__*/React.createElement("nav", {
     style: {
       width: 200,
       flexShrink: 0,
@@ -6327,7 +6285,7 @@ function App() {
   }, React.createElement("span", { style: { fontSize: 18 } }, s.icon),
   React.createElement("div", { style: { flex: 1 } },
     React.createElement("div", { style: { fontSize: 13, fontWeight: step === s.id ? 700 : 500, color: step === s.id ? "#1e3a5f" : "#6b7280" } }, s.label),
-    React.createElement("div", { style: { fontSize: 10, color: "#9ca3af", marginTop: 1 } }, s.id + 1, "/", STEPS.length)
+    React.createElement("div", { style: { fontSize: 10, color: "#9ca3af", marginTop: 1 } }, s.id + 1, "/", 8)
   ),
   React.createElement("div", { style: { width: 8, height: 8, borderRadius: "50%", background: dotCol, flexShrink: 0 } })
   ); }), /*#__PURE__*/React.createElement("div", {
@@ -6422,7 +6380,7 @@ function App() {
   }, /*#__PURE__*/React.createElement("div", {
     className: "step-enter",
     key: "step-" + step
-  }, step === 0 && /*#__PURE__*/React.createElement(StepCompany, {
+  }, React.createElement(SoftWarnings, { warnings: getSoftWarnings(step, company, revenues, hrs, investments, assumptions, lang) }), step === 0 && /*#__PURE__*/React.createElement(StepCompany, {
     company: company,
     setCompany: setCompany,
     setRevenues: setRevenues,
@@ -6430,19 +6388,19 @@ function App() {
     setOpexItems: setOpexItems,
     setInvestments: setInvestments,
     setAssumptions: setAssumptions
-  }), step === 1 && React.createElement(React.Fragment, null, React.createElement(SoftWarnings, { warnings: getSoftWarnings(1, company, revenues, hrs, investments, assumptions, lang) }), /*#__PURE__*/React.createElement(StepRevenue, {
+  }), step === 1 && /*#__PURE__*/React.createElement(StepRevenue, {
     revenues: revenues,
     setRevenues: setRevenues,
     company: company
-  })), step === 2 && /*#__PURE__*/React.createElement(StepProduction, {
+  }), step === 2 && /*#__PURE__*/React.createElement(StepProduction, {
     revenues: revenues,
     investments: investments,
     company: company
-  }), step === 3 && React.createElement(React.Fragment, null, React.createElement(SoftWarnings, { warnings: getSoftWarnings(3, company, revenues, hrs, investments, assumptions, lang) }), /*#__PURE__*/React.createElement(StepHR, {
+  }), step === 3 && /*#__PURE__*/React.createElement(StepHR, {
     hrs: hrs,
     setHrs: setHrs,
     company: company
-  })), step === 4 && /*#__PURE__*/React.createElement(StepOpEx, {
+  }), step === 4 && /*#__PURE__*/React.createElement(StepOpEx, {
     opexItems: opexItems,
     setOpexItems: setOpexItems,
     company: company
@@ -6450,11 +6408,11 @@ function App() {
     investments: investments,
     setInvestments: setInvestments,
     company: company
-  }), step === 6 && React.createElement(React.Fragment, null, React.createElement(SoftWarnings, { warnings: getSoftWarnings(6, company, revenues, hrs, investments, assumptions, lang) }), /*#__PURE__*/React.createElement(StepAssumptions, {
+  }), step === 6 && /*#__PURE__*/React.createElement(StepAssumptions, {
     assumptions: assumptions,
     setAssumptions: setAssumptions,
     company: company
-  })), step === 7 && /*#__PURE__*/React.createElement(StepResults, {
+  }), step === 7 && /*#__PURE__*/React.createElement(StepResults, {
     financials: financials,
     company: company,
     assumptions: assumptions,

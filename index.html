@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Piano Economico v5.1 — Generatore Business Plan</title>
+<title>Piano Economico v5.2 — Generatore Business Plan</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -67,6 +67,7 @@ function updateYL(company) {
   YL[0] = String(sy); YL[1] = String(sy+1); YL[2] = String(sy+2); YL[3] = String(sy+3); YL[4] = String(sy+4);
 }
 // V5.1: Fix encoding UTF-8, DSCR CADS, sval.crediti OIC15, debiti prev. D13, metriche EBA, interessi Y1, RAL↔Costo sync
+// V5.2: Fix PDF grafici (var f), SP quadratura (arNetto+sval CF), B9 decomposizione, DSCR CADS negativo, Bilancio Civilistico 2424/2425
 // V5.0: Sprint 1 - Fix motore calcolo (IRES 24%, perdite fiscali, IRAP cuneo, TFR da RAL, PN 10 voci, amm.to 50%)
 // V4.6: Multi-lingua (IT/EN) expanded
 const I18N = {
@@ -610,8 +611,9 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const arNetto = YEARS.map((_, i) => ar[i] - fondoSvalCrediti[i]);
   const inventory = YEARS.map((_, i) => totalCOGS[i] * assumptions.dio / 360);
   const ap = YEARS.map((_, i) => totalCOGS[i] * (1 + assumptions.vatRate) * assumptions.dpo / 360);
-  // V5.1: Debiti previdenziali D13 (~31% oneri sociali, 2 mesi debito)
-  const oneriSociali = YEARS.map((_, i) => hrCosts[i] * 0.31 / 1.31);
+  // V5.1 FIX: Oneri sociali calcolati come residuo per garantire totB9 = hrCosts
+  // B9a=RAL, B9c=TFR, B9b=hrCosts-RAL-TFR → somma sempre = hrCosts
+  const oneriSociali = YEARS.map((_, i) => Math.max(0, hrCosts[i] - totalRAL[i] - tfrQuotaAnno[i]));
   const debitiPrevidenziali = YEARS.map((_, i) => oneriSociali[i] / 6);
   const totalInvestments = YEARS.map((_, i) => investments.filter(inv => inv.year === i).reduce((s, inv) => s + inv.cost, 0));
   // FIX v4.4: IVA su investimenti nel cash flow
@@ -653,7 +655,8 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const cumGrantIncome = YEARS.map((_, i) => grantIncome.slice(0, i + 1).reduce((s, g) => s + g, 0));
   const deferredGrant = YEARS.map((_, i) => Math.max(0, assumptions.grantAmount - cumGrantIncome[i]));
   const currentLiabilities = YEARS.map((_, i) => ap[i] + totalTax[i] + debitiPrevidenziali[i] + (assumptions.openingTaxPayable || 0));
-  const totalAssetsNoCash = YEARS.map((_, i) => ar[i] + inventory[i] + netFA[i]);
+  // V5.1 FIX: Use arNetto (net of bad debt reserve) for asset calculation consistency
+  const totalAssetsNoCash = YEARS.map((_, i) => arNetto[i] + inventory[i] + netFA[i]);
   const totalLiabEq = YEARS.map((_, i) => currentLiabilities[i] + deferredGrant[i] + netDebt[i] + cumTFR[i] + equity[i]);
   // FIX v4.3: cash non può essere negativo in SP → fido di cassa (revolving credit)
   const rawCash = YEARS.map((_, i) => totalLiabEq[i] - totalAssetsNoCash[i]);
@@ -674,7 +677,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     const wcTrade = -(ar[i] - prevAR + inventory[i] - prevInv - (ap[i] - prevAP));
     const wcTax = i === 0 ? totalTax[0] : totalTax[i] - totalTax[i - 1];
     const grantAdj = grantCashIn[i] - grantIncome[i];
-    return netIncome[i] + depreciation[i] + tfrAccrual[i] + wcTrade + wcTax + grantAdj;
+    return netIncome[i] + depreciation[i] + svalutazioneCrediti[i] + tfrAccrual[i] + wcTrade + wcTax + grantAdj;
   });
   const cfInvesting = YEARS.map((_, i) => -totalInvestmentsCash[i]);
   // CF Financing: NO grant here (grant cash is captured via operating adjustment)
@@ -690,7 +693,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     return netIncome[i] / equity[i];
   });
   const roa = YEARS.map((_, i) => totalAssets[i] ? netIncome[i] / totalAssets[i] : 0);
-  const currentRatio = YEARS.map((_, i) => currentLiabilities[i] > 0 ? (ar[i] + inventory[i] + Math.max(0, cash[i])) / currentLiabilities[i] : null);
+  const currentRatio = YEARS.map((_, i) => currentLiabilities[i] > 0 ? (arNetto[i] + inventory[i] + Math.max(0, cash[i])) / currentLiabilities[i] : null);
   const debtRatio = YEARS.map((_, i) => totalAssets[i] ? netDebt[i] / totalAssets[i] : 0);
   const headcount = YEARS.map((_, i) => hrs.reduce((s, h) => s + (h.count[i] || 0), 0));
   const revPerEmp = YEARS.map((_, i) => headcount[i] ? totalRevenue[i] / headcount[i] : 0);
@@ -711,6 +714,8 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     const prevAP_c = i === 0 ? (assumptions.openingAP || 0) : ap[i - 1];
     const deltaNWC = (ar[i] + inventory[i] - ap[i]) - (prevAR_c + prevInv_c - prevAP_c);
     const cads = ebitda[i] - totalTax[i] - deltaNWC - totalInvestments[i];
+    // V5.1 FIX: CADS negativo (tipico anno investimento startup) → mostra n.a. anziché ratio fuorviante
+    if (cads < 0) return null;
     return cads / debtService[i];
   });
 
@@ -736,7 +741,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const runway = YEARS.map((_, i) => burnRate[i] > 0 ? Math.max(0, cash[i]) / burnRate[i] : null);
 
   // NWC (Net Working Capital) = Attivo corrente - Passivo corrente
-  const nwc = YEARS.map((_, i) => ar[i] + inventory[i] + Math.max(0, cash[i]) - currentLiabilities[i]);
+  const nwc = YEARS.map((_, i) => arNetto[i] + inventory[i] + Math.max(0, cash[i]) - currentLiabilities[i]);
 
   // Costo del personale / Ricavi (incidenza)
   const hrOnRevenue = YEARS.map((_, i) => totalRevenue[i] > 0 ? hrCosts[i] / totalRevenue[i] : 0);
@@ -918,8 +923,8 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
       const salariStipendi = totalRAL[i];
       const onSoc = oneriSociali[i];
       const tfrQ = tfrQuotaAnno[i];
-      const altriCostiPers = Math.max(0, hrCosts[i] - salariStipendi - onSoc - tfrQ);
-      const totB9 = salariStipendi + onSoc + tfrQ + altriCostiPers;
+      // onSoc = hrCosts - RAL - TFR, so sum always = hrCosts
+      const totB9 = hrCosts[i];
       const totB10 = depreciation[i] + svalutazioneCrediti[i];
       const totB = totalCOGS[i] + opexCosts[i] + totB9 + totB10;
       const diffAB = (totalRevenue[i] + (grantIncome[i] || 0)) - totB;
@@ -927,7 +932,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
         A1: totalRevenue[i], A5: grantIncome[i] || 0,
         totA: totalRevenue[i] + (grantIncome[i] || 0),
         B6: totalCOGS[i], B7: opexCosts[i], B8: 0,
-        B9a: salariStipendi, B9b: onSoc, B9c: tfrQ, B9e: altriCostiPers, totB9: totB9,
+        B9a: salariStipendi, B9b: onSoc, B9c: tfrQ, B9e: 0, totB9: totB9,
         B10a: 0, B10b: depreciation[i], B10d: svalutazioneCrediti[i], totB10: totB10,
         B14: 0, totB: totB,
         diffAB: diffAB,
@@ -1960,6 +1965,9 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
     align: "center"
   });
 
+  // V5.1: f = financials BEFORE charts to avoid temporal dead zone
+  const f = financials;
+
   // V4.5: DASHBOARD GRAFICO nel PDF
   doc.addPage();
   y = pg.my;
@@ -2034,7 +2042,6 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
   doc.addPage();
   y = pg.my;
   addTitle("CONTO ECONOMICO PREVISIONALE");
-  const f = financials;
   addTable(null, [{
     label: "Ricavi totali",
     values: f.totalRevenue,
@@ -2197,6 +2204,9 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
   }, {
     label: "  + TFR accantonato",
     values: f.tfrAccrual
+  }, {
+    label: "  + Sval. crediti (non-cash)",
+    values: f.svalutazioneCrediti
   }, {
     label: "  ± Δ Capitale circolante",
     values: wcChange
@@ -2682,6 +2692,12 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
     }, {
       label: "(+) Ammortamenti",
       values: f.depreciation
+    }, {
+      label: "(+) TFR accantonato",
+      values: f.tfrAccrual
+    }, {
+      label: "(+) Sval. crediti (non-cash)",
+      values: f.svalutazioneCrediti
     }, {
       label: "(±) Δ Capitale circolante",
       values: xlWcChange
@@ -6244,6 +6260,10 @@ React.createElement(Card, {
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "  + TFR accantonato (non-cash)",
     values: f.tfrAccrual,
+    n: n
+  }), f.svalutazioneCrediti.some(v => v > 0) && /*#__PURE__*/React.createElement(YearRow, {
+    label: "  + Sval. crediti (non-cash)",
+    values: f.svalutazioneCrediti,
     n: n
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "  \xB1 \u0394 Capitale circolante",

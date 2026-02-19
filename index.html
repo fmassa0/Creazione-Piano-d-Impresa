@@ -7037,9 +7037,17 @@ function App() {
           ...DEFAULTS.company,
           ...data.company
         });
-        if (data.revenues) setRevenues(data.revenues);
+        if (data.revenues) setRevenues(data.revenues.map(r => ({
+          ...r,
+          // V5.2: Sanitize percentages > 1 (user may enter 65 instead of 0.65)
+          grossMargin: r.grossMargin > 1 ? r.grossMargin / 100 : r.grossMargin
+        })));
         if (data.hrs) setHrs(data.hrs);
-        if (data.opexItems) setOpexItems(data.opexItems);
+        if (data.opexItems) setOpexItems(data.opexItems.map(o => ({
+          ...o,
+          // V5.2: Sanitize percentOfRevenue (4 → 0.04, user may enter % not decimal)
+          percentOfRevenue: o.isPercentOfRevenue && o.percentOfRevenue > 1 ? o.percentOfRevenue / 100 : (o.percentOfRevenue || 0)
+        })));
         if (data.investments) setInvestments(data.investments);
         if (data.assumptions) {
           const merged = {

@@ -913,6 +913,55 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
       ccn: arNetto[i] + inventory[i] + Math.max(0, cash[i]) - currentLiabilities[i]
     })),
 
+    // V5.1: CE Civilistico art. 2425 c.c.
+    ceCivil: YEARS.map((_, i) => {
+      const salariStipendi = totalRAL[i];
+      const onSoc = oneriSociali[i];
+      const tfrQ = tfrQuotaAnno[i];
+      const altriCostiPers = Math.max(0, hrCosts[i] - salariStipendi - onSoc - tfrQ);
+      const totB9 = salariStipendi + onSoc + tfrQ + altriCostiPers;
+      const totB10 = depreciation[i] + svalutazioneCrediti[i];
+      const totB = totalCOGS[i] + opexCosts[i] + totB9 + totB10;
+      const diffAB = (totalRevenue[i] + (grantIncome[i] || 0)) - totB;
+      return {
+        A1: totalRevenue[i], A5: grantIncome[i] || 0,
+        totA: totalRevenue[i] + (grantIncome[i] || 0),
+        B6: totalCOGS[i], B7: opexCosts[i], B8: 0,
+        B9a: salariStipendi, B9b: onSoc, B9c: tfrQ, B9e: altriCostiPers, totB9: totB9,
+        B10a: 0, B10b: depreciation[i], B10d: svalutazioneCrediti[i], totB10: totB10,
+        B14: 0, totB: totB,
+        diffAB: diffAB,
+        C17: interest[i], totC: -interest[i],
+        risultatoPrimaImposte: diffAB - interest[i],
+        imposte20: totalTax[i], ires20: ires[i], irap20: irap[i],
+        utile21: netIncome[i]
+      };
+    }),
+
+    // V5.1: SP Civilistico art. 2424 c.c.
+    spCivil: YEARS.map((_, i) => ({
+      // ATTIVO
+      BII: netFA[i], totB_att: netFA[i],
+      CI: inventory[i],
+      CII: arNetto[i], CII_fondo: fondoSvalCrediti[i], CII_lordo: ar[i],
+      CIV: Math.max(0, cash[i]),
+      totC_att: inventory[i] + arNetto[i] + Math.max(0, cash[i]),
+      totAttivo: netFA[i] + inventory[i] + arNetto[i] + Math.max(0, cash[i]),
+      // PASSIVO
+      AI: capitaleSociale, AIV: riservaLegale[i], AVI: altreRiserve[i],
+      AVIII: i > 0 ? utiliANuovo[i] - netIncome[i] : 0,
+      AIX: netIncome[i],
+      totA_pass: equity[i],
+      B_fondi: 0,
+      C_tfr: cumTFR[i],
+      D4: netDebt[i], D7: ap[i], D12: totalTax[i], D13: debitiPrevidenziali[i], D14: 0,
+      totD: netDebt[i] + ap[i] + totalTax[i] + debitiPrevidenziali[i],
+      D_entro: ap[i] + totalTax[i] + debitiPrevidenziali[i] + Math.min(netDebt[i], localRepayment[i] || 0),
+      D_oltre: Math.max(0, netDebt[i] - (localRepayment[i] || 0)),
+      E_ratei: deferredGrant[i],
+      totPassivo: equity[i] + cumTFR[i] + netDebt[i] + ap[i] + totalTax[i] + debitiPrevidenziali[i] + deferredGrant[i]
+    })),
+
     // V3: Anno 0 from bilancio
     anno0: company.bilpianoAnno0 || null,
     annoM1: company.bilpianoAnnoM1 || null,
@@ -2193,6 +2242,73 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
     bold: true
   }]);
 
+  // ═══ V5.1: CE CIVILISTICO art. 2425 c.c. (PDF) ═══
+  if (f.ceCivil) {
+    doc.addPage(); y = pg.my;
+    addTitle("CONTO ECONOMICO art. 2425 c.c.");
+    addTable(null, [
+      { label: "A) VALORE DELLA PRODUZIONE", values: [], bold: true },
+      { label: "A1) Ricavi vendite e prestazioni", values: f.ceCivil.map(c => c.A1) },
+      { label: "A5) Altri ricavi e proventi", values: f.ceCivil.map(c => c.A5) },
+      { label: "Totale valore produzione (A)", values: f.ceCivil.map(c => c.totA), bold: true, highlight: true },
+      { label: "B) COSTI DELLA PRODUZIONE", values: [], bold: true },
+      { label: "B6) Materie prime e merci", values: f.ceCivil.map(c => c.B6) },
+      { label: "B7) Per servizi", values: f.ceCivil.map(c => c.B7) },
+      { label: "B9) Per il personale:", values: [], bold: true },
+      { label: "   a) Salari e stipendi", values: f.ceCivil.map(c => c.B9a) },
+      { label: "   b) Oneri sociali", values: f.ceCivil.map(c => c.B9b) },
+      { label: "   c) TFR", values: f.ceCivil.map(c => c.B9c) },
+      { label: "   e) Altri costi personale", values: f.ceCivil.map(c => c.B9e) },
+      { label: "   Totale personale (B9)", values: f.ceCivil.map(c => c.totB9), bold: true },
+      { label: "B10) Amm.ti e svalutazioni:", values: [], bold: true },
+      { label: "   b) Amm.to immob. materiali", values: f.ceCivil.map(c => c.B10b) },
+      { label: "   d) Sval. crediti att. circ.", values: f.ceCivil.map(c => c.B10d) },
+      { label: "   Totale amm.ti (B10)", values: f.ceCivil.map(c => c.totB10), bold: true },
+      { label: "Totale costi produzione (B)", values: f.ceCivil.map(c => c.totB), bold: true, highlight: true },
+      { label: "DIFFERENZA A \u2212 B", values: f.ceCivil.map(c => c.diffAB), bold: true, highlight: true },
+      { label: "C17) Interessi passivi", values: f.ceCivil.map(c => -c.C17) },
+      { label: "Risultato prima imposte", values: f.ceCivil.map(c => c.risultatoPrimaImposte), bold: true },
+      { label: "20) Imposte (IRES+IRAP)", values: f.ceCivil.map(c => -c.imposte20) },
+      { label: "21) UTILE (PERDITA)", values: f.ceCivil.map(c => c.utile21), bold: true, highlight: true },
+    ]);
+  }
+
+  // ═══ V5.1: SP CIVILISTICO art. 2424 c.c. (PDF) ═══
+  if (f.spCivil) {
+    doc.addPage(); y = pg.my;
+    addTitle("STATO PATRIMONIALE art. 2424 c.c.");
+    addTable("ATTIVO", [
+      { label: "B) Immobilizzazioni materiali", values: f.spCivil.map(c => c.BII) },
+      { label: "Totale immobilizzazioni (B)", values: f.spCivil.map(c => c.totB_att), bold: true },
+      { label: "C) Attivo circolante", values: [], bold: true },
+      { label: "  I - Rimanenze", values: f.spCivil.map(c => c.CI) },
+      { label: "  II - Crediti (netti)", values: f.spCivil.map(c => c.CII) },
+      { label: "  IV - Disponibilit\xE0 liquide", values: f.spCivil.map(c => c.CIV) },
+      { label: "Totale att. circolante (C)", values: f.spCivil.map(c => c.totC_att), bold: true },
+      { label: "TOTALE ATTIVO", values: f.spCivil.map(c => c.totAttivo), bold: true, highlight: true },
+    ]);
+    addTable("PASSIVO", [
+      { label: "A) Patrimonio netto", values: [], bold: true },
+      { label: "  I - Capitale sociale", values: f.spCivil.map(c => c.AI) },
+      { label: "  IV - Riserva legale", values: f.spCivil.map(c => c.AIV) },
+      { label: "  VI - Altre riserve", values: f.spCivil.map(c => c.AVI) },
+      { label: "  VIII - Utili a nuovo", values: f.spCivil.map(c => c.AVIII) },
+      { label: "  IX - Utile esercizio", values: f.spCivil.map(c => c.AIX) },
+      { label: "Totale PN (A)", values: f.spCivil.map(c => c.totA_pass), bold: true },
+      { label: "C) TFR", values: f.spCivil.map(c => c.C_tfr) },
+      { label: "D) Debiti", values: [], bold: true },
+      { label: "  D4) Verso banche", values: f.spCivil.map(c => c.D4) },
+      { label: "  D7) Verso fornitori", values: f.spCivil.map(c => c.D7) },
+      { label: "  D12) Tributari", values: f.spCivil.map(c => c.D12) },
+      { label: "  D13) Previdenziali", values: f.spCivil.map(c => c.D13) },
+      { label: "Totale debiti (D)", values: f.spCivil.map(c => c.totD), bold: true },
+      { label: "  entro es. successivo", values: f.spCivil.map(c => c.D_entro) },
+      { label: "  oltre es. successivo", values: f.spCivil.map(c => c.D_oltre) },
+      { label: "E) Ratei e risconti", values: f.spCivil.map(c => c.E_ratei) },
+      { label: "TOTALE PASSIVO", values: f.spCivil.map(c => c.totPassivo), bold: true, highlight: true },
+    ]);
+  }
+
   // KPI Redditività
   addTitle("INDICATORI CHIAVE (KPI)");
   addTable("Redditività", [{
@@ -2233,8 +2349,16 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
     pct: true
   }]);
   addTable("Sostenibilità finanziaria", [{
-    label: "DSCR (Debt Service Coverage)",
+    label: "DSCR (EBITDA-based)",
     values: f.dscr,
+    dec: 2
+  }, {
+    label: "DSCR Cash-based (EBA)",
+    values: f.dscrCash,
+    dec: 2
+  }, {
+    label: "DSCR CADS (conservativo)",
+    values: f.dscrCADS,
     dec: 2
   }, {
     label: "ICR (Interest Coverage)",
@@ -2245,8 +2369,20 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
     values: f.currentRatio,
     dec: 2
   }, {
+    label: "Equity Ratio (PN/Attivo)",
+    values: f.equityRatio,
+    pct: true
+  }, {
     label: "Debt/Equity",
     values: f.debtEquity,
+    dec: 2
+  }, {
+    label: "Debito/EBITDA",
+    values: f.debtToEbitda,
+    dec: 1
+  }, {
+    label: "Cash Debt Coverage",
+    values: f.cashDebtCoverage,
     dec: 2
   }, {
     label: "Rapporto indebitamento",
@@ -5564,6 +5700,9 @@ function StepResults({
     id: "cf",
     label: isEN ? "Cash Flow" : "Cash Flow"
   }, {
+    id: "civil",
+    label: isEN ? "\uD83C\uDFDB\uFE0F Civil Code" : "\uD83C\uDFDB\uFE0F Bilancio Civilistico"
+  }, {
     id: "kpi",
     label: isEN ? "Advanced KPIs" : "KPI Avanzati"
   }, {
@@ -6184,7 +6323,119 @@ React.createElement(Card, {
     values: f.cumCash,
     n: n,
     bold: true
-  }), /*#__PURE__*/React.createElement(Note, null, "Il Cash Flow mostra se l'azienda genera o brucia cassa. Un CF Operativo negativo per pi\xF9 anni indica che il business non si auto-sostiene. Il CF Finanziamento (debiti + equity) copre il fabbisogno iniziale, ma alla banca interessa che il CF Operativo diventi positivo.")), tab === "kpi" && /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement(Note, null, "Il Cash Flow mostra se l'azienda genera o brucia cassa. Un CF Operativo negativo per pi\xF9 anni indica che il business non si auto-sostiene. Il CF Finanziamento (debiti + equity) copre il fabbisogno iniziale, ma alla banca interessa che il CF Operativo diventi positivo.")),
+
+  // ═══ V5.1: BILANCIO CIVILISTICO art. 2424/2425 c.c. ═══
+  tab === "civil" && f.ceCivil && /*#__PURE__*/React.createElement("div", {
+    style: { display: "flex", flexDirection: "column", gap: 16 }
+  },
+    // ── CE art. 2425 ──
+    /*#__PURE__*/React.createElement(Card, { title: "Conto Economico — art. 2425 c.c.", accent: true },
+      /*#__PURE__*/React.createElement(YearHeader, { n: n }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 0", fontSize: 12, fontWeight: 700, color: "#1e3a5f", textTransform: "uppercase", letterSpacing: ".05em" } }, "A) VALORE DELLA PRODUZIONE"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "A1) Ricavi vendite e prestazioni", values: f.ceCivil.map(c => c.A1), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "A5) Altri ricavi e proventi", values: f.ceCivil.map(c => c.A5), n: n }),
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Totale valore della produzione (A)", values: f.ceCivil.map(c => c.totA), n: n, bold: true, highlight: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 8 } }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 0", fontSize: 12, fontWeight: 700, color: "#1e3a5f", textTransform: "uppercase", letterSpacing: ".05em" } }, "B) COSTI DELLA PRODUZIONE"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "B6) Materie prime, suss., consumo, merci", values: f.ceCivil.map(c => c.B6), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "B7) Per servizi", values: f.ceCivil.map(c => c.B7), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "B8) Per godimento beni di terzi", values: f.ceCivil.map(c => c.B8), n: n }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 12px", fontSize: 11, fontWeight: 600, color: "#374151" } }, "B9) Per il personale"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "    a) Salari e stipendi", values: f.ceCivil.map(c => c.B9a), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "    b) Oneri sociali", values: f.ceCivil.map(c => c.B9b), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "    c) Trattamento fine rapporto", values: f.ceCivil.map(c => c.B9c), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "    e) Altri costi del personale", values: f.ceCivil.map(c => c.B9e), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Totale costi personale (B9)", values: f.ceCivil.map(c => c.totB9), n: n, bold: true }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 12px", fontSize: 11, fontWeight: 600, color: "#374151" } }, "B10) Ammortamenti e svalutazioni"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "    b) Amm.to immob. materiali", values: f.ceCivil.map(c => c.B10b), n: n }),
+      f.ceCivil.some(c => c.B10d > 0) && /*#__PURE__*/React.createElement(YearRow, { label: "    d) Sval. crediti attivo circ.", values: f.ceCivil.map(c => c.B10d), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Totale amm.ti e svalutazioni (B10)", values: f.ceCivil.map(c => c.totB10), n: n, bold: true }),
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Totale costi della produzione (B)", values: f.ceCivil.map(c => c.totB), n: n, bold: true, highlight: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 8 } }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "DIFFERENZA A \u2212 B", values: f.ceCivil.map(c => c.diffAB), n: n, bold: true, highlight: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 8 } }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 0", fontSize: 12, fontWeight: 700, color: "#1e3a5f", textTransform: "uppercase", letterSpacing: ".05em" } }, "C) PROVENTI E ONERI FINANZIARI"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "C17) Interessi e altri oneri finanziari", values: f.ceCivil.map(c => -c.C17), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Totale proventi e oneri finanziari (C)", values: f.ceCivil.map(c => c.totC), n: n, bold: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 8 } }),
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Risultato prima delle imposte (A\u2212B\u00B1C)", values: f.ceCivil.map(c => c.risultatoPrimaImposte), n: n, bold: true }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "20) Imposte sul reddito (IRES+IRAP)", values: f.ceCivil.map(c => -c.imposte20), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "    di cui IRES", values: f.ceCivil.map(c => -c.ires20), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "    di cui IRAP", values: f.ceCivil.map(c => -c.irap20), n: n }),
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "21) UTILE (PERDITA) DELL'ESERCIZIO", values: f.ceCivil.map(c => c.utile21), n: n, bold: true, highlight: true }),
+      /*#__PURE__*/React.createElement(Note, null, "Schema conforme all'art. 2425 c.c. (forma abbreviata ex art. 2435-bis per PMI). Voci B9 scomposte in salari, oneri sociali, TFR e altri costi. Voce B10d = svalutazione crediti (OIC 15). Le voci con importo zero vengono comunque esposte per completezza formale.")
+    ),
+
+    // ── SP art. 2424 ──
+    /*#__PURE__*/React.createElement(Card, { title: "Stato Patrimoniale — art. 2424 c.c.", accent: true },
+      /*#__PURE__*/React.createElement(YearHeader, { n: n }),
+
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 0", fontSize: 13, fontWeight: 700, color: "#1e3a5f", textTransform: "uppercase", letterSpacing: ".05em" } }, "ATTIVO"),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 12, fontWeight: 700, color: "#374151" } }, "B) Immobilizzazioni"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  II - Immobilizzazioni materiali", values: f.spCivil.map(c => c.BII), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Totale immobilizzazioni (B)", values: f.spCivil.map(c => c.totB_att), n: n, bold: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 12, fontWeight: 700, color: "#374151" } }, "C) Attivo circolante"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  I - Rimanenze", values: f.spCivil.map(c => c.CI), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  II - Crediti (lordi)", values: f.spCivil.map(c => c.CII_lordo), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "       (Fondo sval. crediti)", values: f.spCivil.map(c => -c.CII_fondo), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  II - Crediti (netti)", values: f.spCivil.map(c => c.CII), n: n, bold: true }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  IV - Disponibilit\xE0 liquide", values: f.spCivil.map(c => c.CIV), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Totale attivo circolante (C)", values: f.spCivil.map(c => c.totC_att), n: n, bold: true }),
+
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "TOTALE ATTIVO", values: f.spCivil.map(c => c.totAttivo), n: n, bold: true, highlight: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 12 } }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 0", fontSize: 13, fontWeight: 700, color: "#1e3a5f", textTransform: "uppercase", letterSpacing: ".05em" } }, "PASSIVO"),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 12, fontWeight: 700, color: "#374151" } }, "A) Patrimonio netto"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  I - Capitale sociale", values: f.spCivil.map(c => c.AI), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  IV - Riserva legale", values: f.spCivil.map(c => c.AIV), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  VI - Altre riserve", values: f.spCivil.map(c => c.AVI), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  VIII - Utili (perdite) a nuovo", values: f.spCivil.map(c => c.AVIII), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  IX - Utile (perdita) esercizio", values: f.spCivil.map(c => c.AIX), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Totale patrimonio netto (A)", values: f.spCivil.map(c => c.totA_pass), n: n, bold: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 12, fontWeight: 700, color: "#374151" } }, "B) Fondi per rischi e oneri"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Totale fondi (B)", values: f.spCivil.map(c => c.B_fondi), n: n }),
+
+      /*#__PURE__*/React.createElement(YearRow, { label: "C) Trattamento fine rapporto", values: f.spCivil.map(c => c.C_tfr), n: n, bold: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 12, fontWeight: 700, color: "#374151" } }, "D) Debiti"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  D4) Debiti verso banche", values: f.spCivil.map(c => c.D4), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  D7) Debiti verso fornitori", values: f.spCivil.map(c => c.D7), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  D12) Debiti tributari", values: f.spCivil.map(c => c.D12), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  D13) Debiti previdenziali", values: f.spCivil.map(c => c.D13), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Totale debiti (D)", values: f.spCivil.map(c => c.totD), n: n, bold: true }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  di cui esigibili entro es. succ.", values: f.spCivil.map(c => c.D_entro), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  di cui esigibili oltre es. succ.", values: f.spCivil.map(c => c.D_oltre), n: n }),
+
+      /*#__PURE__*/React.createElement(YearRow, { label: "E) Ratei e risconti passivi", values: f.spCivil.map(c => c.E_ratei), n: n }),
+
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "TOTALE PASSIVO", values: f.spCivil.map(c => c.totPassivo), n: n, bold: true, highlight: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 8 } }),
+      // Verifica quadratura
+      /*#__PURE__*/React.createElement(YearRow, {
+        label: "\u2705 Verifica: Attivo \u2212 Passivo",
+        values: f.spCivil.map(c => c.totAttivo - c.totPassivo),
+        n: n, bold: true
+      }),
+      /*#__PURE__*/React.createElement(Note, null, "Schema conforme all'art. 2424 c.c. (forma abbreviata ex art. 2435-bis per PMI). Debiti scomposti per natura con separata indicazione entro/oltre l'esercizio successivo (art. 2424, co. 1, lett. D). Patrimonio Netto con 5 componenti (OIC 28). La riga 'Verifica' deve essere sempre zero: Attivo = Passivo + PN.")
+    )
+  ),
+
+  tab === "kpi" && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",

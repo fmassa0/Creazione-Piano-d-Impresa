@@ -667,6 +667,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
   const fundingGap = revolvingCredit;
 
   // CF Operating: NI + Dep + WC change (relative to opening values for Y1) + grant cash adjustment
+  // V5.2b: includes debitiPrevidenziali in WC for SP reconciliation
   const oAR = assumptions.openingAR || 0;
   const oAP = assumptions.openingAP || 0;
   const oInv = assumptions.openingInventory || 0;
@@ -674,14 +675,22 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     const prevAR = i === 0 ? oAR : ar[i - 1];
     const prevInv = i === 0 ? oInv : inventory[i - 1];
     const prevAP = i === 0 ? oAP : ap[i - 1];
+    const prevPrev = i === 0 ? 0 : debitiPrevidenziali[i - 1];
     const wcTrade = -(ar[i] - prevAR + inventory[i] - prevInv - (ap[i] - prevAP));
     const wcTax = i === 0 ? totalTax[0] : totalTax[i] - totalTax[i - 1];
+    const wcPrev = debitiPrevidenziali[i] - prevPrev;
     const grantAdj = grantCashIn[i] - grantIncome[i];
-    return netIncome[i] + depreciation[i] + svalutazioneCrediti[i] + tfrAccrual[i] + wcTrade + wcTax + grantAdj;
+    return netIncome[i] + depreciation[i] + svalutazioneCrediti[i] + tfrAccrual[i] + wcTrade + wcTax + wcPrev + grantAdj;
   });
-  const cfInvesting = YEARS.map((_, i) => -totalInvestmentsCash[i]);
+  // V5.2b: cfInvesting uses totalInvestments (no IVA) to reconcile with SP (no IVA receivable in B/S)
+  const cfInvesting = YEARS.map((_, i) => -totalInvestments[i]);
   // CF Financing: NO grant here (grant cash is captured via operating adjustment)
-  const cfFinancing = YEARS.map((_, i) => (assumptions.debtAmount[i] || 0) - (localRepayment[i] || 0) + (assumptions.equityInjection[i] || 0) - dividends[i]);
+  // V5.2b: includes capitaleSociale as cash inflow for nuova_impresa (shareholders' initial contribution)
+  const capitaleSocialeInflow = company.companyType === "nuova_impresa" || company.companyType === "startup" ? capitaleSociale : 0;
+  const cfFinancing = YEARS.map((_, i) => {
+    const csInflow = i === 0 ? capitaleSocialeInflow : 0;
+    return (assumptions.debtAmount[i] || 0) - (localRepayment[i] || 0) + (assumptions.equityInjection[i] || 0) + csInflow - dividends[i];
+  });
   const netCF = YEARS.map((_, i) => cfOperating[i] + cfInvesting[i] + cfFinancing[i]);
   const cumCash = YEARS.map((_, i) => (assumptions.openingCash || 0) + netCF.slice(0, i + 1).reduce((s, c) => s + c, 0));
   const grossMarginPct = YEARS.map((_, i) => totalRevenue[i] ? grossProfit[i] / totalRevenue[i] : 0);
@@ -886,6 +895,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     dscrCADS, fondoSvalCrediti, svalutazioneCrediti, arNetto,
     debitiPrevidenziali, oneriSociali,
     equityRatio, debtToEbitda, cashDebtCoverage, capacitaAmmortamento,
+    capitaleSocialeInflow,
 
     // V3: CE Riclassificato a Valore Aggiunto
     ceRiclass: YEARS.map((_, i) => ({
@@ -968,8 +978,10 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
     })),
 
     // V5.2: Rendiconto Finanziario OIC 10 — metodo indiretto (Schema n.1)
+    // CORRETTO v5.2b: riconcilia perfettamente con SP cash (plug patrimoniale)
     cfOIC10: YEARS.map((_, i) => {
-      const oAR_o = i === 0 ? (assumptions.openingAR || 0) : arNetto[i - 1];
+      // FIX 4: Usa ar LORDO (non arNetto) per coerenza con sval add-back
+      const oAR_o = i === 0 ? (assumptions.openingAR || 0) : ar[i - 1];
       const oInv_o = i === 0 ? (assumptions.openingInventory || 0) : inventory[i - 1];
       const oAP_o = i === 0 ? (assumptions.openingAP || 0) : ap[i - 1];
       const oTax_o = i === 0 ? (assumptions.openingTaxPayable || 0) : totalTax[i - 1];
@@ -977,7 +989,7 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
       const oDG_o = i === 0 ? 0 : deferredGrant[i - 1];
 
       // Subtotale 1: Utile prima di imposte, interessi, plus/minus
-      const sub1 = netIncome[i] + totalTax[i] + interest[i]; // = EBT + interessi
+      const sub1 = netIncome[i] + totalTax[i] + interest[i]; // = EBIT
 
       // Rettifiche non monetarie (no contropartita in CCN)
       const accTFR = tfrAccrual[i];
@@ -990,7 +1002,8 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
 
       // Variazioni CCN
       const deltaRimanenze = -(inventory[i] - oInv_o);
-      const deltaCrediti = -(arNetto[i] - oAR_o);
+      // FIX 4: ar LORDO (la sval è già in rettifiche non monetarie)
+      const deltaCrediti = -(ar[i] - oAR_o);
       const deltaFornitori = ap[i] - oAP_o;
       const deltaRiscontiPass = deferredGrant[i] - oDG_o;
       const deltaTributari = totalTax[i] - oTax_o;
@@ -1002,22 +1015,28 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
 
       // Altre rettifiche (cassa effettiva)
       const interessiPagati = -interest[i];
-      const impostePagate = -totalTax[i]; // semplificazione: pagate = accantonamento anno
-      const grantCash = grantCashIn[i];
-      const totAltreRett = interessiPagati + impostePagate + grantCash;
+      const impostePagate = -totalTax[i];
+      // FIX 1: RIMOSSO grantCash — il contributo è già catturato da:
+      //   NI (grantIncome +3000) + deltaRiscontiPass (+12000) = totale +15000
+      //   Aggiungerlo qui sarebbe un DOPPIO CONTEGGIO
+      const totAltreRett = interessiPagati + impostePagate;
 
       // A) CF Operativo OIC 10
       const cfOpA = sub3 + totAltreRett;
 
       // B) CF Investimento
-      const cfInvB = -totalInvestmentsCash[i];
+      // FIX 3: Usa totalInvestments (costo) NON totalInvestmentsCash (costo+IVA)
+      // perché lo SP non modella IVA a credito come voce patrimoniale separata
+      const cfInvB = -totalInvestments[i];
 
       // C) CF Finanziamento
       const nuoviFin = assumptions.debtAmount[i] || 0;
       const rimborsoFin = localRepayment[i] || 0;
       const apportoEquity = assumptions.equityInjection[i] || 0;
+      // FIX 2: Capitale sociale è un apporto di cassa alla costituzione (nuova impresa)
+      const conferimentoCS = i === 0 ? capitaleSociale : 0;
       const divPagati = dividends[i];
-      const cfFinC = nuoviFin - rimborsoFin + apportoEquity - divPagati;
+      const cfFinC = nuoviFin - rimborsoFin + apportoEquity + conferimentoCS - divPagati;
 
       const deltaLiq = cfOpA + cfInvB + cfFinC;
       const liqInizio = i === 0 ? (assumptions.openingCash || 0) : Math.max(0, cash[i - 1]);
@@ -1027,23 +1046,23 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
         utileEsercizio: netIncome[i],
         imposteReddito: totalTax[i],
         interessiPassivi: interest[i],
-        sub1, // Utile prima imposte/interessi
+        sub1,
 
         accTFR, accAmm, accSval, totRettNonMon,
-        sub2, // Flusso prima variazioni CCN
+        sub2,
 
         deltaRimanenze, deltaCrediti, deltaFornitori,
         deltaRiscontiPass, deltaTributari, deltaPrevidenziali,
         totDeltaCCN,
-        sub3, // Flusso dopo variazioni CCN
+        sub3,
 
-        interessiPagati, impostePagate, grantCash, totAltreRett,
-        cfOpA, // Flusso operativo (A)
+        interessiPagati, impostePagate, totAltreRett,
+        cfOpA,
 
-        cfInvB, // Flusso investimento (B)
+        cfInvB,
 
-        nuoviFin, rimborsoFin, apportoEquity, divPagati,
-        cfFinC, // Flusso finanziamento (C)
+        nuoviFin, rimborsoFin, apportoEquity, conferimentoCS, divPagati,
+        cfFinC,
 
         deltaLiq, liqInizio, liqFine
       };
@@ -2274,9 +2293,11 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
   const wcChange = YEARS.map((_, i) => {
     const wcTrade = i === 0 ? -(f.ar[0] + f.inventory[0] - f.ap[0]) : -(f.ar[i] - f.ar[i - 1] + (f.inventory[i] - f.inventory[i - 1]) - (f.ap[i] - f.ap[i - 1]));
     const wcTax = i === 0 ? f.totalTax[0] : f.totalTax[i] - f.totalTax[i - 1];
-    return wcTrade + wcTax;
+    const wcPrev = i === 0 ? f.debitiPrevidenziali[0] : f.debitiPrevidenziali[i] - f.debitiPrevidenziali[i - 1];
+    return wcTrade + wcTax + wcPrev;
   });
   const grantAdj = YEARS.map((_, i) => f.grantCashIn[i] - f.grantIncome[i]);
+  const csInflowArr = YEARS.map((_, i) => i === 0 ? (f.capitaleSocialeInflow || 0) : 0);
   addTable(null, [{
     label: "Utile netto",
     values: f.netIncome
@@ -2313,6 +2334,9 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
   }, {
     label: "  − Rimborso debito",
     values: YEARS.map((_, i) => -(f.localRepayment[i] || 0))
+  }, {
+    label: "  + Conferimento capitale sociale",
+    values: csInflowArr
   }, {
     label: "  + Apporto equity",
     values: YEARS.map((_, i) => assumptions.equityInjection[i] || 0)
@@ -2433,7 +2457,6 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
       { label: "Altre rettifiche:", values: [], bold: true },
       { label: "  (Interessi pagati)", values: f.cfOIC10.map(c => c.interessiPagati) },
       { label: "  (Imposte pagate)", values: f.cfOIC10.map(c => c.impostePagate) },
-      { label: "  Incassi contributi", values: f.cfOIC10.map(c => c.grantCash) },
       { label: "  Totale altre rettifiche", values: f.cfOIC10.map(c => c.totAltreRett), bold: true },
       { label: "Flusso attivita' operativa (A)", values: f.cfOIC10.map(c => c.cfOpA), bold: true, highlight: true },
       { label: "", values: [] },
@@ -2444,6 +2467,7 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
       { label: "C) ATTIVITA' DI FINANZIAMENTO", values: [], bold: true },
       { label: "  Accensione finanziamenti", values: f.cfOIC10.map(c => c.nuoviFin) },
       { label: "  (Rimborso finanziamenti)", values: f.cfOIC10.map(c => -c.rimborsoFin) },
+      { label: "  Conferimento capitale sociale", values: f.cfOIC10.map(c => c.conferimentoCS) },
       { label: "  Apporto equity", values: f.cfOIC10.map(c => c.apportoEquity) },
       { label: "  (Dividendi pagati)", values: f.cfOIC10.map(c => -c.divPagati) },
       { label: "Flusso attivita' finanziamento (C)", values: f.cfOIC10.map(c => c.cfFinC), bold: true, highlight: true },
@@ -2816,9 +2840,11 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
   const xlWcChange = YEARS.map((_, i) => {
     const wcTrade = i === 0 ? -(f.ar[0] + f.inventory[0] - f.ap[0]) : -(f.ar[i] - f.ar[i - 1] + (f.inventory[i] - f.inventory[i - 1]) - (f.ap[i] - f.ap[i - 1]));
     const wcTax = i === 0 ? f.totalTax[0] : f.totalTax[i] - f.totalTax[i - 1];
-    return wcTrade + wcTax;
+    const wcPrev = i === 0 ? f.debitiPrevidenziali[0] : f.debitiPrevidenziali[i] - f.debitiPrevidenziali[i - 1];
+    return wcTrade + wcTax + wcPrev;
   });
   const xlGrantAdj = YEARS.map((_, i) => f.grantCashIn[i] - f.grantIncome[i]);
+  const xlCsInflow = YEARS.map((_, i) => i === 0 ? (f.capitaleSocialeInflow || 0) : 0);
   makeSheet("Cash Flow", [{
     title: "RENDICONTO FINANZIARIO",
     rows: [{
@@ -2851,6 +2877,9 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
     }, {
       label: "(−) Rimborso debito",
       values: YEARS.map((_, i) => -(f.localRepayment[i] || 0))
+    }, {
+      label: "(+) Conferimento CS",
+      values: xlCsInflow
     }, {
       label: "(+) Apporto equity",
       values: YEARS.map((_, i) => assumptions.equityInjection[i] || 0)
@@ -2893,13 +2922,13 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
         { label: "3. Flusso dopo variazioni CCN", values: f.cfOIC10.map(c => c.sub3) },
         { label: "(Interessi pagati)", values: f.cfOIC10.map(c => c.interessiPagati) },
         { label: "(Imposte pagate)", values: f.cfOIC10.map(c => c.impostePagate) },
-        { label: "Incassi contributi", values: f.cfOIC10.map(c => c.grantCash) },
         { label: "Totale altre rettifiche", values: f.cfOIC10.map(c => c.totAltreRett) },
         { label: "Flusso attivita' operativa (A)", values: f.cfOIC10.map(c => c.cfOpA) },
         { label: "(Investimenti)", values: f.cfOIC10.map(c => c.cfInvB) },
         { label: "Flusso attivita' investimento (B)", values: f.cfOIC10.map(c => c.cfInvB) },
         { label: "Accensione finanziamenti", values: f.cfOIC10.map(c => c.nuoviFin) },
         { label: "(Rimborso finanziamenti)", values: f.cfOIC10.map(c => -c.rimborsoFin) },
+        { label: "Conferimento capitale sociale", values: f.cfOIC10.map(c => c.conferimentoCS) },
         { label: "Apporto equity", values: f.cfOIC10.map(c => c.apportoEquity) },
         { label: "(Dividendi pagati)", values: f.cfOIC10.map(c => -c.divPagati) },
         { label: "Flusso attivita' finanziamento (C)", values: f.cfOIC10.map(c => c.cfFinC) },
@@ -6446,7 +6475,8 @@ React.createElement(Card, {
     values: YEARS.map((_, i) => {
       const wcTrade = i === 0 ? -(f.ar[0] + f.inventory[0] - f.ap[0]) : -(f.ar[i] - f.ar[i - 1] + (f.inventory[i] - f.inventory[i - 1]) - (f.ap[i] - f.ap[i - 1]));
       const wcTax = i === 0 ? f.totalTax[0] : f.totalTax[i] - f.totalTax[i - 1];
-      return wcTrade + wcTax;
+      const wcPrev = i === 0 ? f.debitiPrevidenziali[0] : f.debitiPrevidenziali[i] - f.debitiPrevidenziali[i - 1];
+      return wcTrade + wcTax + wcPrev;
     }),
     n: n
   }), /*#__PURE__*/React.createElement(YearRow, {
@@ -6494,6 +6524,10 @@ React.createElement(Card, {
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "  \u2212 Rimborso debito",
     values: YEARS.map((_, i) => -(f.localRepayment[i] || 0)),
+    n: n
+  }), (f.capitaleSocialeInflow || 0) > 0 && /*#__PURE__*/React.createElement(YearRow, {
+    label: "  + Conferimento capitale sociale",
+    values: YEARS.map((_, i) => i === 0 ? f.capitaleSocialeInflow : 0),
     n: n
   }), /*#__PURE__*/React.createElement(YearRow, {
     label: "  + Apporto equity",
@@ -6666,7 +6700,6 @@ React.createElement(Card, {
       /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 11, fontWeight: 600, color: "#374151" } }, "Altre rettifiche"),
       /*#__PURE__*/React.createElement(YearRow, { label: "  (Interessi pagati)", values: f.cfOIC10.map(c => c.interessiPagati), n: n }),
       /*#__PURE__*/React.createElement(YearRow, { label: "  (Imposte sul reddito pagate)", values: f.cfOIC10.map(c => c.impostePagate), n: n }),
-      f.cfOIC10.some(c => c.grantCash > 0) && /*#__PURE__*/React.createElement(YearRow, { label: "  Incassi contributi", values: f.cfOIC10.map(c => c.grantCash), n: n }),
       /*#__PURE__*/React.createElement(YearRow, { label: "  Totale altre rettifiche", values: f.cfOIC10.map(c => c.totAltreRett), n: n, bold: true }),
       /*#__PURE__*/React.createElement(Div, null),
       /*#__PURE__*/React.createElement(YearRow, { label: "Flusso finanziario attivit\xE0 operativa (A)", values: f.cfOIC10.map(c => c.cfOpA), n: n, bold: true, highlight: true }),
@@ -6682,6 +6715,7 @@ React.createElement(Card, {
       /*#__PURE__*/React.createElement(YearRow, { label: "  Accensione finanziamenti", values: f.cfOIC10.map(c => c.nuoviFin), n: n }),
       /*#__PURE__*/React.createElement(YearRow, { label: "  (Rimborso finanziamenti)", values: f.cfOIC10.map(c => -c.rimborsoFin), n: n }),
       /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 11, fontWeight: 600, color: "#374151" } }, "Mezzi propri"),
+      f.cfOIC10.some(c => c.conferimentoCS > 0) && /*#__PURE__*/React.createElement(YearRow, { label: "  Conferimento capitale sociale", values: f.cfOIC10.map(c => c.conferimentoCS), n: n }),
       /*#__PURE__*/React.createElement(YearRow, { label: "  Apporto equity", values: f.cfOIC10.map(c => c.apportoEquity), n: n }),
       f.cfOIC10.some(c => c.divPagati > 0) && /*#__PURE__*/React.createElement(YearRow, { label: "  (Dividendi pagati)", values: f.cfOIC10.map(c => -c.divPagati), n: n }),
       /*#__PURE__*/React.createElement(YearRow, { label: "Flusso finanziario attivit\xE0 di finanziamento (C)", values: f.cfOIC10.map(c => c.cfFinC), n: n, bold: true, highlight: true }),

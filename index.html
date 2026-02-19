@@ -967,6 +967,88 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
       totPassivo: equity[i] + cumTFR[i] + netDebt[i] + ap[i] + totalTax[i] + debitiPrevidenziali[i] + deferredGrant[i]
     })),
 
+    // V5.2: Rendiconto Finanziario OIC 10 — metodo indiretto (Schema n.1)
+    cfOIC10: YEARS.map((_, i) => {
+      const oAR_o = i === 0 ? (assumptions.openingAR || 0) : arNetto[i - 1];
+      const oInv_o = i === 0 ? (assumptions.openingInventory || 0) : inventory[i - 1];
+      const oAP_o = i === 0 ? (assumptions.openingAP || 0) : ap[i - 1];
+      const oTax_o = i === 0 ? (assumptions.openingTaxPayable || 0) : totalTax[i - 1];
+      const oPrev_o = i === 0 ? 0 : debitiPrevidenziali[i - 1];
+      const oDG_o = i === 0 ? 0 : deferredGrant[i - 1];
+
+      // Subtotale 1: Utile prima di imposte, interessi, plus/minus
+      const sub1 = netIncome[i] + totalTax[i] + interest[i]; // = EBT + interessi
+
+      // Rettifiche non monetarie (no contropartita in CCN)
+      const accTFR = tfrAccrual[i];
+      const accAmm = depreciation[i];
+      const accSval = svalutazioneCrediti[i];
+      const totRettNonMon = accTFR + accAmm + accSval;
+
+      // Subtotale 2: Flusso prima variazioni CCN
+      const sub2 = sub1 + totRettNonMon;
+
+      // Variazioni CCN
+      const deltaRimanenze = -(inventory[i] - oInv_o);
+      const deltaCrediti = -(arNetto[i] - oAR_o);
+      const deltaFornitori = ap[i] - oAP_o;
+      const deltaRiscontiPass = deferredGrant[i] - oDG_o;
+      const deltaTributari = totalTax[i] - oTax_o;
+      const deltaPrevidenziali = debitiPrevidenziali[i] - oPrev_o;
+      const totDeltaCCN = deltaRimanenze + deltaCrediti + deltaFornitori + deltaRiscontiPass + deltaTributari + deltaPrevidenziali;
+
+      // Subtotale 3: Flusso dopo variazioni CCN
+      const sub3 = sub2 + totDeltaCCN;
+
+      // Altre rettifiche (cassa effettiva)
+      const interessiPagati = -interest[i];
+      const impostePagate = -totalTax[i]; // semplificazione: pagate = accantonamento anno
+      const grantCash = grantCashIn[i];
+      const totAltreRett = interessiPagati + impostePagate + grantCash;
+
+      // A) CF Operativo OIC 10
+      const cfOpA = sub3 + totAltreRett;
+
+      // B) CF Investimento
+      const cfInvB = -totalInvestmentsCash[i];
+
+      // C) CF Finanziamento
+      const nuoviFin = assumptions.debtAmount[i] || 0;
+      const rimborsoFin = localRepayment[i] || 0;
+      const apportoEquity = assumptions.equityInjection[i] || 0;
+      const divPagati = dividends[i];
+      const cfFinC = nuoviFin - rimborsoFin + apportoEquity - divPagati;
+
+      const deltaLiq = cfOpA + cfInvB + cfFinC;
+      const liqInizio = i === 0 ? (assumptions.openingCash || 0) : Math.max(0, cash[i - 1]);
+      const liqFine = liqInizio + deltaLiq;
+
+      return {
+        utileEsercizio: netIncome[i],
+        imposteReddito: totalTax[i],
+        interessiPassivi: interest[i],
+        sub1, // Utile prima imposte/interessi
+
+        accTFR, accAmm, accSval, totRettNonMon,
+        sub2, // Flusso prima variazioni CCN
+
+        deltaRimanenze, deltaCrediti, deltaFornitori,
+        deltaRiscontiPass, deltaTributari, deltaPrevidenziali,
+        totDeltaCCN,
+        sub3, // Flusso dopo variazioni CCN
+
+        interessiPagati, impostePagate, grantCash, totAltreRett,
+        cfOpA, // Flusso operativo (A)
+
+        cfInvB, // Flusso investimento (B)
+
+        nuoviFin, rimborsoFin, apportoEquity, divPagati,
+        cfFinC, // Flusso finanziamento (C)
+
+        deltaLiq, liqInizio, liqFine
+      };
+    }),
+
     // V3: Anno 0 from bilancio
     anno0: company.bilpianoAnno0 || null,
     annoM1: company.bilpianoAnnoM1 || null,
@@ -2319,6 +2401,59 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
     ]);
   }
 
+  // V5.2: Rendiconto Finanziario OIC 10 nel PDF
+  if (f.cfOIC10) {
+    doc.addPage();
+    y = pg.my;
+    addTitle("RENDICONTO FINANZIARIO OIC 10 (metodo indiretto)");
+    addTable(null, [
+      { label: "A) ATTIVITA' OPERATIVA", values: [], bold: true },
+      { label: "Utile (perdita) dell'esercizio", values: f.cfOIC10.map(c => c.utileEsercizio) },
+      { label: "Imposte sul reddito", values: f.cfOIC10.map(c => c.imposteReddito) },
+      { label: "Interessi passivi", values: f.cfOIC10.map(c => c.interessiPassivi) },
+      { label: "1. Utile prima imposte/interessi", values: f.cfOIC10.map(c => c.sub1), bold: true },
+      { label: "", values: [] },
+      { label: "Rettifiche non monetarie:", values: [], bold: true },
+      { label: "  Accantonamento TFR", values: f.cfOIC10.map(c => c.accTFR) },
+      { label: "  Ammortamenti immobilizzazioni", values: f.cfOIC10.map(c => c.accAmm) },
+      { label: "  Svalutazioni crediti", values: f.cfOIC10.map(c => c.accSval) },
+      { label: "  Totale rettifiche non monetarie", values: f.cfOIC10.map(c => c.totRettNonMon), bold: true },
+      { label: "2. Flusso prima variazioni CCN", values: f.cfOIC10.map(c => c.sub2), bold: true },
+      { label: "", values: [] },
+      { label: "Variazioni capitale circolante netto:", values: [], bold: true },
+      { label: "  Decr./(incr.) rimanenze", values: f.cfOIC10.map(c => c.deltaRimanenze) },
+      { label: "  Decr./(incr.) crediti vs clienti", values: f.cfOIC10.map(c => c.deltaCrediti) },
+      { label: "  Incr./(decr.) debiti vs fornitori", values: f.cfOIC10.map(c => c.deltaFornitori) },
+      { label: "  Incr./(decr.) debiti tributari", values: f.cfOIC10.map(c => c.deltaTributari) },
+      { label: "  Incr./(decr.) debiti previdenziali", values: f.cfOIC10.map(c => c.deltaPrevidenziali) },
+      { label: "  Incr./(decr.) risconti passivi", values: f.cfOIC10.map(c => c.deltaRiscontiPass) },
+      { label: "  Totale variazioni CCN", values: f.cfOIC10.map(c => c.totDeltaCCN), bold: true },
+      { label: "3. Flusso dopo variazioni CCN", values: f.cfOIC10.map(c => c.sub3), bold: true },
+      { label: "", values: [] },
+      { label: "Altre rettifiche:", values: [], bold: true },
+      { label: "  (Interessi pagati)", values: f.cfOIC10.map(c => c.interessiPagati) },
+      { label: "  (Imposte pagate)", values: f.cfOIC10.map(c => c.impostePagate) },
+      { label: "  Incassi contributi", values: f.cfOIC10.map(c => c.grantCash) },
+      { label: "  Totale altre rettifiche", values: f.cfOIC10.map(c => c.totAltreRett), bold: true },
+      { label: "Flusso attivita' operativa (A)", values: f.cfOIC10.map(c => c.cfOpA), bold: true, highlight: true },
+      { label: "", values: [] },
+      { label: "B) ATTIVITA' DI INVESTIMENTO", values: [], bold: true },
+      { label: "  (Investimenti in immob. materiali)", values: f.cfOIC10.map(c => c.cfInvB) },
+      { label: "Flusso attivita' investimento (B)", values: f.cfOIC10.map(c => c.cfInvB), bold: true, highlight: true },
+      { label: "", values: [] },
+      { label: "C) ATTIVITA' DI FINANZIAMENTO", values: [], bold: true },
+      { label: "  Accensione finanziamenti", values: f.cfOIC10.map(c => c.nuoviFin) },
+      { label: "  (Rimborso finanziamenti)", values: f.cfOIC10.map(c => -c.rimborsoFin) },
+      { label: "  Apporto equity", values: f.cfOIC10.map(c => c.apportoEquity) },
+      { label: "  (Dividendi pagati)", values: f.cfOIC10.map(c => -c.divPagati) },
+      { label: "Flusso attivita' finanziamento (C)", values: f.cfOIC10.map(c => c.cfFinC), bold: true, highlight: true },
+      { label: "", values: [] },
+      { label: "Incremento (decr.) disp. liquide (A+B+C)", values: f.cfOIC10.map(c => c.deltaLiq), bold: true, highlight: true },
+      { label: "Disponibilita' liquide inizio esercizio", values: f.cfOIC10.map(c => c.liqInizio) },
+      { label: "Disponibilita' liquide fine esercizio", values: f.cfOIC10.map(c => c.liqFine), bold: true },
+    ]);
+  }
+
   // KPI Redditività
   addTitle("INDICATORI CHIAVE (KPI)");
   addTable("Redditività", [{
@@ -2514,7 +2649,7 @@ async function exportPDF(company, financials, revenues, hrs, opexItems, investme
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(107, 114, 128);
-  var disclaimerText = "Documento previsionale basato su ipotesi ragionevoli ma soggette a incertezza. Redatto secondo principi OIC, rendiconto finanziario indiretto (OIC 10). IRAP su Valore Produzione - Costi Produzione. Si raccomanda integrazione con analisi di mercato. Generato il " + new Date().toLocaleDateString("it-IT") + ".";
+  var disclaimerText = "Documento previsionale basato su ipotesi ragionevoli ma soggette a incertezza. Redatto secondo principi OIC. CE art. 2425 c.c., SP art. 2424 c.c. (OIC 12), Rendiconto Finanziario metodo indiretto Schema n.1 (OIC 10, Appendice A). IRAP su Valore Produzione - Costi Produzione. Si raccomanda integrazione con analisi di mercato. Generato il " + new Date().toLocaleDateString("it-IT") + ".";
   var discLines = doc.splitTextToSize(disclaimerText, pg.w - 2 * pg.mx);
   discLines.forEach(function(line) { doc.text(line, pg.mx, y); y += 4.5; });
 
@@ -2733,6 +2868,47 @@ function exportExcel(company, financials, revenues, hrs, opexItems, investments,
       values: f.cumCash
     }]
   }]);
+
+  // V5.2: Rendiconto Finanziario OIC 10 in Excel
+  if (f.cfOIC10) {
+    makeSheet("CF OIC 10", [{
+      title: "RENDICONTO FINANZIARIO OIC 10 (metodo indiretto)",
+      rows: [
+        { label: "Utile (perdita) dell'esercizio", values: f.cfOIC10.map(c => c.utileEsercizio) },
+        { label: "Imposte sul reddito", values: f.cfOIC10.map(c => c.imposteReddito) },
+        { label: "Interessi passivi", values: f.cfOIC10.map(c => c.interessiPassivi) },
+        { label: "1. Utile prima imposte/interessi", values: f.cfOIC10.map(c => c.sub1) },
+        { label: "Accantonamento TFR", values: f.cfOIC10.map(c => c.accTFR) },
+        { label: "Ammortamenti immobilizzazioni", values: f.cfOIC10.map(c => c.accAmm) },
+        { label: "Svalutazioni crediti", values: f.cfOIC10.map(c => c.accSval) },
+        { label: "Totale rettifiche non monetarie", values: f.cfOIC10.map(c => c.totRettNonMon) },
+        { label: "2. Flusso prima variazioni CCN", values: f.cfOIC10.map(c => c.sub2) },
+        { label: "Decr./(incr.) rimanenze", values: f.cfOIC10.map(c => c.deltaRimanenze) },
+        { label: "Decr./(incr.) crediti vs clienti", values: f.cfOIC10.map(c => c.deltaCrediti) },
+        { label: "Incr./(decr.) debiti vs fornitori", values: f.cfOIC10.map(c => c.deltaFornitori) },
+        { label: "Incr./(decr.) debiti tributari", values: f.cfOIC10.map(c => c.deltaTributari) },
+        { label: "Incr./(decr.) debiti previdenziali", values: f.cfOIC10.map(c => c.deltaPrevidenziali) },
+        { label: "Incr./(decr.) risconti passivi", values: f.cfOIC10.map(c => c.deltaRiscontiPass) },
+        { label: "Totale variazioni CCN", values: f.cfOIC10.map(c => c.totDeltaCCN) },
+        { label: "3. Flusso dopo variazioni CCN", values: f.cfOIC10.map(c => c.sub3) },
+        { label: "(Interessi pagati)", values: f.cfOIC10.map(c => c.interessiPagati) },
+        { label: "(Imposte pagate)", values: f.cfOIC10.map(c => c.impostePagate) },
+        { label: "Incassi contributi", values: f.cfOIC10.map(c => c.grantCash) },
+        { label: "Totale altre rettifiche", values: f.cfOIC10.map(c => c.totAltreRett) },
+        { label: "Flusso attivita' operativa (A)", values: f.cfOIC10.map(c => c.cfOpA) },
+        { label: "(Investimenti)", values: f.cfOIC10.map(c => c.cfInvB) },
+        { label: "Flusso attivita' investimento (B)", values: f.cfOIC10.map(c => c.cfInvB) },
+        { label: "Accensione finanziamenti", values: f.cfOIC10.map(c => c.nuoviFin) },
+        { label: "(Rimborso finanziamenti)", values: f.cfOIC10.map(c => -c.rimborsoFin) },
+        { label: "Apporto equity", values: f.cfOIC10.map(c => c.apportoEquity) },
+        { label: "(Dividendi pagati)", values: f.cfOIC10.map(c => -c.divPagati) },
+        { label: "Flusso attivita' finanziamento (C)", values: f.cfOIC10.map(c => c.cfFinC) },
+        { label: "Incremento (decr.) disp. liquide", values: f.cfOIC10.map(c => c.deltaLiq) },
+        { label: "Disp. liquide inizio esercizio", values: f.cfOIC10.map(c => c.liqInizio) },
+        { label: "Disp. liquide fine esercizio", values: f.cfOIC10.map(c => c.liqFine) },
+      ]
+    }]);
+  }
 
   // KPI
   makeSheet("KPI", [{
@@ -6452,6 +6628,71 @@ React.createElement(Card, {
         n: n, bold: true
       }),
       /*#__PURE__*/React.createElement(Note, null, "Schema conforme all'art. 2424 c.c. (forma abbreviata ex art. 2435-bis per PMI). Debiti scomposti per natura con separata indicazione entro/oltre l'esercizio successivo (art. 2424, co. 1, lett. D). Patrimonio Netto con 5 componenti (OIC 28). La riga 'Verifica' deve essere sempre zero: Attivo = Passivo + PN.")
+    ),
+
+    // ── Rendiconto Finanziario OIC 10 (metodo indiretto) ──
+    f.cfOIC10 && /*#__PURE__*/React.createElement(Card, { title: "Rendiconto Finanziario — OIC 10 (metodo indiretto)", accent: true },
+      /*#__PURE__*/React.createElement(YearHeader, { n: n }),
+
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 0", fontSize: 12, fontWeight: 700, color: "#1e3a5f", textTransform: "uppercase", letterSpacing: ".05em" } }, "A) FLUSSI FINANZIARI ATTIVIT\xC0 OPERATIVA"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Utile (perdita) dell'esercizio", values: f.cfOIC10.map(c => c.utileEsercizio), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Imposte sul reddito", values: f.cfOIC10.map(c => c.imposteReddito), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Interessi passivi", values: f.cfOIC10.map(c => c.interessiPassivi), n: n }),
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "1. Utile prima imposte, interessi e plus/minus", values: f.cfOIC10.map(c => c.sub1), n: n, bold: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 4 } }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 11, fontWeight: 600, color: "#374151" } }, "Rettifiche per elementi non monetari"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Accantonamento TFR", values: f.cfOIC10.map(c => c.accTFR), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Ammortamenti immobilizzazioni", values: f.cfOIC10.map(c => c.accAmm), n: n }),
+      f.cfOIC10.some(c => c.accSval > 0) && /*#__PURE__*/React.createElement(YearRow, { label: "  Svalutazioni crediti", values: f.cfOIC10.map(c => c.accSval), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Totale rettifiche non monetarie", values: f.cfOIC10.map(c => c.totRettNonMon), n: n, bold: true }),
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "2. Flusso prima delle variazioni del CCN", values: f.cfOIC10.map(c => c.sub2), n: n, bold: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 4 } }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 11, fontWeight: 600, color: "#374151" } }, "Variazioni del capitale circolante netto"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Decr./(incr.) rimanenze", values: f.cfOIC10.map(c => c.deltaRimanenze), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Decr./(incr.) crediti vs clienti", values: f.cfOIC10.map(c => c.deltaCrediti), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Incr./(decr.) debiti vs fornitori", values: f.cfOIC10.map(c => c.deltaFornitori), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Incr./(decr.) debiti tributari", values: f.cfOIC10.map(c => c.deltaTributari), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Incr./(decr.) debiti previdenziali", values: f.cfOIC10.map(c => c.deltaPrevidenziali), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Incr./(decr.) risconti passivi", values: f.cfOIC10.map(c => c.deltaRiscontiPass), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Totale variazioni CCN", values: f.cfOIC10.map(c => c.totDeltaCCN), n: n, bold: true }),
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "3. Flusso dopo le variazioni del CCN", values: f.cfOIC10.map(c => c.sub3), n: n, bold: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 4 } }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 11, fontWeight: 600, color: "#374151" } }, "Altre rettifiche"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  (Interessi pagati)", values: f.cfOIC10.map(c => c.interessiPagati), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  (Imposte sul reddito pagate)", values: f.cfOIC10.map(c => c.impostePagate), n: n }),
+      f.cfOIC10.some(c => c.grantCash > 0) && /*#__PURE__*/React.createElement(YearRow, { label: "  Incassi contributi", values: f.cfOIC10.map(c => c.grantCash), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Totale altre rettifiche", values: f.cfOIC10.map(c => c.totAltreRett), n: n, bold: true }),
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Flusso finanziario attivit\xE0 operativa (A)", values: f.cfOIC10.map(c => c.cfOpA), n: n, bold: true, highlight: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 8 } }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 0", fontSize: 12, fontWeight: 700, color: "#1e3a5f", textTransform: "uppercase", letterSpacing: ".05em" } }, "B) FLUSSI FINANZIARI ATTIVIT\xC0 DI INVESTIMENTO"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  (Investimenti in immob. materiali)", values: f.cfOIC10.map(c => c.cfInvB), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Flusso finanziario attivit\xE0 di investimento (B)", values: f.cfOIC10.map(c => c.cfInvB), n: n, bold: true, highlight: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 8 } }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 0", fontSize: 12, fontWeight: 700, color: "#1e3a5f", textTransform: "uppercase", letterSpacing: ".05em" } }, "C) FLUSSI FINANZIARI ATTIVIT\xC0 DI FINANZIAMENTO"),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 11, fontWeight: 600, color: "#374151" } }, "Mezzi di terzi"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Accensione finanziamenti", values: f.cfOIC10.map(c => c.nuoviFin), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  (Rimborso finanziamenti)", values: f.cfOIC10.map(c => -c.rimborsoFin), n: n }),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "2px 0 2px 0", fontSize: 11, fontWeight: 600, color: "#374151" } }, "Mezzi propri"),
+      /*#__PURE__*/React.createElement(YearRow, { label: "  Apporto equity", values: f.cfOIC10.map(c => c.apportoEquity), n: n }),
+      f.cfOIC10.some(c => c.divPagati > 0) && /*#__PURE__*/React.createElement(YearRow, { label: "  (Dividendi pagati)", values: f.cfOIC10.map(c => -c.divPagati), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Flusso finanziario attivit\xE0 di finanziamento (C)", values: f.cfOIC10.map(c => c.cfFinC), n: n, bold: true, highlight: true }),
+
+      /*#__PURE__*/React.createElement("div", { style: { height: 12 } }),
+      /*#__PURE__*/React.createElement(Div, null),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Incremento (decremento) disponibilit\xE0 liquide (A\u00B1B\u00B1C)", values: f.cfOIC10.map(c => c.deltaLiq), n: n, bold: true, highlight: true }),
+      /*#__PURE__*/React.createElement("div", { style: { height: 4 } }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Disponibilit\xE0 liquide inizio esercizio", values: f.cfOIC10.map(c => c.liqInizio), n: n }),
+      /*#__PURE__*/React.createElement(YearRow, { label: "Disponibilit\xE0 liquide fine esercizio", values: f.cfOIC10.map(c => c.liqFine), n: n, bold: true }),
+      /*#__PURE__*/React.createElement(Note, null, "Schema conforme OIC 10, Appendice A, Schema n.1 (metodo indiretto). Flusso operativo: dall'Utile si risale al flusso di cassa rettificando per elementi non monetari (TFR, ammortamenti, svalutazioni), variazioni del CCN, interessi e imposte effettivamente pagati. Le tre categorie (A+B+C) riconciliano con la variazione di cassa del periodo.")
     )
   ),
 

@@ -633,8 +633,15 @@ function computeFinancials(company, revenues, hrs, opexItems, investments, assum
         const annualQuota = inv.cost / inv.usefulLife;
         let accDep = 0;
         for (let y = inv.year; y <= Math.min(i, inv.year + inv.usefulLife - 1); y++) {
-          if (y === inv.year && firstYearReduction && inv.usefulLife > 1) accDep += annualQuota * 0.5;
-          else accDep += annualQuota;
+          if (y === inv.year && firstYearReduction && inv.usefulLife > 1) {
+            accDep += annualQuota * 0.5;
+          } else if (y === inv.year + inv.usefulLife - 1 && firstYearReduction && inv.usefulLife > 1) {
+            // V5.2c: Catch-up ultimo anno — recupera il 50% non ammortizzato del primo anno
+            // Coerente con depreciation[] che ha lo stesso catch-up
+            accDep += annualQuota + annualQuota * 0.5;
+          } else {
+            accDep += annualQuota;
+          }
         }
         return s + Math.min(accDep, inv.cost);
       }
